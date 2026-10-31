@@ -55,6 +55,7 @@ local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 local UserInputService = game:GetService("UserInputService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 local VirtualInputManager
 pcall(function() VirtualInputManager = game:GetService("VirtualInputManager") end)
 
@@ -80,6 +81,12 @@ local currentTarget = nil
 local isFarming = false
 local isAutoLooting = true -- เปิดใช้งาน Auto Loot เป็นค่าเริ่มต้น
 local isHitboxExpanded = true -- เปิดใช้งาน ขยาย Hitbox เป็นค่าเริ่มต้น
+local isAutoParry = true -- เปิดใช้งาน Auto Parry เป็นค่าเริ่มต้น
+local PARRY_DISTANCE = 18
+local PARRY_WINDOW = 0.22
+local PARRY_LEAD = 0.12
+local isParrying = false
+local handledAttacks = setmetatable({}, { __mode = "k" })
 
 local mainTask = nil
 local attackTask = nil
@@ -524,7 +531,7 @@ settingsBody.Size = UDim2.new(1, 0, 1, -56)
 settingsBody.BackgroundTransparency = 1
 settingsBody.BorderSizePixel = 0
 settingsBody.ScrollBarThickness = 4
-settingsBody.CanvasSize = UDim2.new(0, 0, 0, 282)
+settingsBody.CanvasSize = UDim2.new(0, 0, 0, 330)
 settingsBody.Parent = settingsPage
 distLabel.Parent = settingsBody
 distLabel.Position = UDim2.new(0, 12, 0, 0)
@@ -535,6 +542,28 @@ placeButton(addDistBtn, settingsBody, 0, 12, 36, 0.5, -16)
 placeButton(subDistBtn, settingsBody, 0.5, 4, 36, 0.5, -16)
 placeButton(toggleHitboxBtn, settingsBody, 0, 12, 84, 1, -24)
 placeButton(toggleLootBtn, settingsBody, 0, 12, 132, 1, -24)
+
+local toggleParryBtn = Instance.new("TextButton")
+toggleParryBtn.Name = "AutoParryToggle"
+toggleParryBtn.Font = Enum.Font.SourceSansBold
+toggleParryBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+Instance.new("UICorner", toggleParryBtn).CornerRadius = UDim.new(0, 6)
+placeButton(toggleParryBtn, settingsBody, 0, 12, 180, 1, -24)
+local function displayParry()
+    toggleParryBtn.Text = isAutoParry and "🛡️ ป้องกันอัตโนมัติ (Auto Parry: ON)" or "🛡️ ป้องกันอัตโนมัติ (Auto Parry: OFF)"
+    toggleParryBtn.BackgroundColor3 = isAutoParry and Color3.fromRGB(40, 110, 150) or Color3.fromRGB(90, 60, 110)
+end
+toggleParryBtn.MouseButton1Click:Connect(function()
+    isAutoParry = not isAutoParry
+    if not isAutoParry and isParrying then
+        combatRemote = combatRemote or findCombatRemote()
+        if combatRemote then pcall(function() combatRemote:FireServer("ParryUp", nil) end) end
+        isParrying = false
+    end
+    displayParry()
+end)
+displayParry()
+
 -- Anti-idle input approach adapted from Infinite Yield's antiafk command:
 -- https://raw.githubusercontent.com/EdgeIY/infiniteyield/master/source
 -- Keep other scripts' Idled connections intact; own connection is cleaned up by cleanup().
@@ -544,7 +573,7 @@ antiAFKButton.Name = "AntiAFKToggle"
 antiAFKButton.Font = Enum.Font.SourceSansBold
 antiAFKButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 Instance.new("UICorner", antiAFKButton).CornerRadius = UDim.new(0, 6)
-placeButton(antiAFKButton, settingsBody, 0, 12, 180, 1, -24)
+placeButton(antiAFKButton, settingsBody, 0, 12, 228, 1, -24)
 local function displayAntiAFK()
     antiAFKButton.Text = antiAFKEnabled and "ป้องกัน AFK (Anti-AFK: ON)" or "ป้องกัน AFK (Anti-AFK: OFF)"
     antiAFKButton.BackgroundColor3 = antiAFKEnabled and Color3.fromRGB(40, 110, 150) or Color3.fromRGB(90, 60, 110)
@@ -573,7 +602,7 @@ externalConnections[#externalConnections + 1] = player.Idled:Connect(function()
         warn("[Murim Anti-AFK] " .. tostring(message))
     end
 end)
-placeButton(destroyBtn, settingsBody, 0, 12, 238, 1, -24)
+placeButton(destroyBtn, settingsBody, 0, 12, 276, 1, -24)
 
 -- Keep Start/Stop accessible from every page.
 local footer = Instance.new("Frame")
@@ -1059,6 +1088,92 @@ externalConnections[#externalConnections + 1] = Workspace.ChildRemoved:Connect(f
 end)
 bindFolderEvents()
 
+--------------------------------------------------------------------------------
+-- 🛡️ ระบบ Auto Parry (อ้างอิงจาก MurimClient.CombatInput)
+--------------------------------------------------------------------------------
+local function canParry()
+    local char = player.Character
+    if not char then return false end
+    if char:GetAttribute("Armed") == nil then return false end
+    local stance = char:GetAttribute("Stance")
+    if stance == "GuardBroken" or stance == "Stunned" or stance == "Parried" then return false end
+    if char:GetAttribute("Knocked") or char:GetAttribute("Ragdoll") or char:GetAttribute("Busy") then return false end
+    local readyAt = tonumber(char:GetAttribute("ParryReadyAt")) or 0
+    if Workspace:GetServerTimeNow() < readyAt then return false end
+    return true
+end
+
+local function executeParry()
+    if isParrying or not canParry() then return end
+    isParrying = true
+    combatRemote = combatRemote or findCombatRemote()
+    if combatRemote then
+        pcall(function() combatRemote:FireServer("ParryDown", nil) end)
+    end
+    task.delay(PARRY_WINDOW, function()
+        if combatRemote then
+            pcall(function() combatRemote:FireServer("ParryUp", nil) end)
+        end
+        isParrying = false
+    end)
+end
+
+local function checkAttacker(enemy)
+    if not isAutoParry or isParrying or not enemy or enemy == player.Character then return end
+    local char = player.Character
+    local myHrp = char and char:FindFirstChild("HumanoidRootPart")
+    local enemyHrp = enemy:FindFirstChild("HumanoidRootPart") or enemy.PrimaryPart or enemy:FindFirstChild("Torso")
+    if not myHrp or not enemyHrp then return end
+
+    local dist = (myHrp.Position - enemyHrp.Position).Magnitude
+    if dist > PARRY_DISTANCE then return end
+
+    local act = enemy:GetAttribute("Act")
+    local actT = enemy:GetAttribute("ActT")
+    local actW = enemy:GetAttribute("ActW")
+
+    if act and type(actT) == "number" and type(actW) == "number" and actW > 0 then
+        local attackId = tostring(act) .. "_" .. tostring(actT)
+        if handledAttacks[enemy] == attackId then return end
+
+        local serverNow = Workspace:GetServerTimeNow()
+        local hitTime = actT + actW
+        local timeRemaining = hitTime - serverNow
+
+        if timeRemaining > 0 and timeRemaining <= (actW + 0.1) then
+            handledAttacks[enemy] = attackId
+            local delayTime = math.max(0, timeRemaining - PARRY_LEAD)
+            if delayTime <= 0.02 then
+                executeParry()
+            else
+                task.delay(delayTime, function()
+                    if not destroyed and isAutoParry and enemy and enemy.Parent and myHrp.Parent then
+                        local currentDist = (myHrp.Position - enemyHrp.Position).Magnitude
+                        if currentDist <= PARRY_DISTANCE then
+                            executeParry()
+                        end
+                    end
+                end)
+            end
+        end
+    end
+end
+
+externalConnections[#externalConnections + 1] = RunService.Heartbeat:Connect(function()
+    if destroyed or not isAutoParry or isParrying or (hubUI.isBusy and hubUI.isBusy()) then return end
+    local npcsFolder = Workspace:FindFirstChild("Murim_NPCs")
+    if npcsFolder then
+        for _, npc in ipairs(npcsFolder:GetChildren()) do
+            checkAttacker(npc)
+        end
+    end
+    for _, otherPlayer in ipairs(Players:GetPlayers()) do
+        if otherPlayer ~= player and otherPlayer.Character then
+            checkAttacker(otherPlayer.Character)
+        end
+    end
+end)
+
 -- อีเวนต์ปุ่มเปิดปิด GUI
 toggleBtn.MouseButton1Click:Connect(function()
 	mainFrame.Visible = not mainFrame.Visible
@@ -1075,6 +1190,10 @@ local function cleanup()
     if destroyed then return end
     destroyed = true
     stopAll()
+    if isParrying and combatRemote then
+        pcall(function() combatRemote:FireServer("ParryUp", nil) end)
+    end
+    isParrying = false
     restoreHitboxes()
     for _, conn in ipairs(folderConnections) do conn:Disconnect() end
     for _, conn in ipairs(externalConnections) do conn:Disconnect() end
