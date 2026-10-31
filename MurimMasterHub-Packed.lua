@@ -70,6 +70,13 @@ local function findCombatRemote()
 end
 local combatRemote = findCombatRemote()
 
+local function findArtifactRemote()
+    local murim = ReplicatedStorage:FindFirstChild("Murim")
+    local remotes = murim and murim:FindFirstChild("Remotes")
+    return remotes and remotes:FindFirstChild("Artifact")
+end
+local artifactRemote = findArtifactRemote()
+
 local hubUI = {}
 local originalHitboxes = setmetatable({}, { __mode = "k" })
 local selectedNPCNames = {} -- รายชื่อมอนที่เลือก [Name] = true/false
@@ -87,6 +94,11 @@ local PARRY_WINDOW = 0.22
 local PARRY_LEAD = 0.12
 local isParrying = false
 local handledAttacks = setmetatable({}, { __mode = "k" })
+
+local isAutoArtifact = true -- เปิดใช้งาน Auto Artifact เป็นค่าเริ่มต้น
+local artifactCooldown = 2.0 -- ความถี่ในการยิง Artifact (วินาที)
+local lastArtifactUsed = 0
+local artifactTask = nil
 
 local mainTask = nil
 local attackTask = nil
@@ -531,7 +543,7 @@ settingsBody.Size = UDim2.new(1, 0, 1, -56)
 settingsBody.BackgroundTransparency = 1
 settingsBody.BorderSizePixel = 0
 settingsBody.ScrollBarThickness = 4
-settingsBody.CanvasSize = UDim2.new(0, 0, 0, 330)
+settingsBody.CanvasSize = UDim2.new(0, 0, 0, 380)
 settingsBody.Parent = settingsPage
 distLabel.Parent = settingsBody
 distLabel.Position = UDim2.new(0, 12, 0, 0)
@@ -564,6 +576,22 @@ toggleParryBtn.MouseButton1Click:Connect(function()
 end)
 displayParry()
 
+local toggleArtifactBtn = Instance.new("TextButton")
+toggleArtifactBtn.Name = "AutoArtifactToggle"
+toggleArtifactBtn.Font = Enum.Font.SourceSansBold
+toggleArtifactBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+Instance.new("UICorner", toggleArtifactBtn).CornerRadius = UDim.new(0, 6)
+placeButton(toggleArtifactBtn, settingsBody, 0, 12, 228, 1, -24)
+local function displayArtifact()
+    toggleArtifactBtn.Text = isAutoArtifact and "📿 ใช้อาวุธวิเศษ (Auto Artifact: ON)" or "📿 ใช้อาวุธวิเศษ (Auto Artifact: OFF)"
+    toggleArtifactBtn.BackgroundColor3 = isAutoArtifact and Color3.fromRGB(40, 110, 150) or Color3.fromRGB(90, 60, 110)
+end
+toggleArtifactBtn.MouseButton1Click:Connect(function()
+    isAutoArtifact = not isAutoArtifact
+    displayArtifact()
+end)
+displayArtifact()
+
 -- Anti-idle input approach adapted from Infinite Yield's antiafk command:
 -- https://raw.githubusercontent.com/EdgeIY/infiniteyield/master/source
 -- Keep other scripts' Idled connections intact; own connection is cleaned up by cleanup().
@@ -573,7 +601,7 @@ antiAFKButton.Name = "AntiAFKToggle"
 antiAFKButton.Font = Enum.Font.SourceSansBold
 antiAFKButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 Instance.new("UICorner", antiAFKButton).CornerRadius = UDim.new(0, 6)
-placeButton(antiAFKButton, settingsBody, 0, 12, 228, 1, -24)
+placeButton(antiAFKButton, settingsBody, 0, 12, 276, 1, -24)
 local function displayAntiAFK()
     antiAFKButton.Text = antiAFKEnabled and "ป้องกัน AFK (Anti-AFK: ON)" or "ป้องกัน AFK (Anti-AFK: OFF)"
     antiAFKButton.BackgroundColor3 = antiAFKEnabled and Color3.fromRGB(40, 110, 150) or Color3.fromRGB(90, 60, 110)
@@ -602,7 +630,7 @@ externalConnections[#externalConnections + 1] = player.Idled:Connect(function()
         warn("[Murim Anti-AFK] " .. tostring(message))
     end
 end)
-placeButton(destroyBtn, settingsBody, 0, 12, 276, 1, -24)
+placeButton(destroyBtn, settingsBody, 0, 12, 324, 1, -24)
 
 -- Keep Start/Stop accessible from every page.
 local footer = Instance.new("Frame")
@@ -872,6 +900,35 @@ local function stopAll()
 	startBtn.BackgroundColor3 = Color3.fromRGB(35, 150, 65)
 end
 
+local function useArtifact(aimPosition)
+    if not isAutoArtifact or (hubUI.isBusy and hubUI.isBusy()) then return end
+    local char = player.Character
+    if not char then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+
+    local aim = aimPosition
+    if not aim then
+        if currentTarget and isAlive(currentTarget) then
+            local targetPart = currentTarget:FindFirstChild("HumanoidRootPart") or currentTarget.PrimaryPart or currentTarget:FindFirstChild("Torso")
+            if targetPart then aim = targetPart.Position end
+        end
+    end
+    if not aim then
+        aim = hrp.Position + hrp.CFrame.LookVector * 25
+    end
+
+    artifactRemote = artifactRemote or findArtifactRemote()
+    if artifactRemote then
+        pcall(function()
+            artifactRemote:FireServer({
+                op = "Use",
+                aim = aim
+            })
+        end)
+    end
+end
+
 local function startFarming()
     if isFarming then return end
     combatRemote = findCombatRemote()
@@ -939,6 +996,13 @@ local function startFarming()
 				pcall(function()
 					combatRemote:FireServer("Attack")
 				end)
+                if isAutoArtifact and os.clock() - lastArtifactUsed >= artifactCooldown then
+                    lastArtifactUsed = os.clock()
+                    local targetPart = currentTarget:FindFirstChild("HumanoidRootPart") or currentTarget.PrimaryPart or currentTarget:FindFirstChild("Torso")
+                    if targetPart then
+                        useArtifact(targetPart.Position)
+                    end
+                end
 			end
 			task.wait(0.1)
 		end
@@ -1174,6 +1238,57 @@ externalConnections[#externalConnections + 1] = RunService.Heartbeat:Connect(fun
     end
 end)
 
+--------------------------------------------------------------------------------
+-- 📿 ระบบ Auto Artifact (ทำงานอัตโนมัติเมื่ออยู่ในระยะศัตรู)
+--------------------------------------------------------------------------------
+artifactTask = task.spawn(function()
+    while not destroyed do
+        if isAutoArtifact and not isFarming and not (hubUI.isBusy and hubUI.isBusy()) then
+            local char = player.Character
+            local hrp = char and char:FindFirstChild("HumanoidRootPart")
+            if hrp and os.clock() - lastArtifactUsed >= artifactCooldown then
+                local targetPos = nil
+                local npcsFolder = Workspace:FindFirstChild("Murim_NPCs")
+                local closestDist = 50
+                if npcsFolder then
+                    for _, npc in ipairs(npcsFolder:GetChildren()) do
+                        if isAlive(npc) then
+                            local tPart = npc:FindFirstChild("HumanoidRootPart") or npc.PrimaryPart or npc:FindFirstChild("Torso")
+                            if tPart then
+                                local d = (hrp.Position - tPart.Position).Magnitude
+                                if d < closestDist then
+                                    closestDist = d
+                                    targetPos = tPart.Position
+                                end
+                            end
+                        end
+                    end
+                end
+                if not targetPos then
+                    for _, otherP in ipairs(Players:GetPlayers()) do
+                        if otherP ~= player and otherP.Character then
+                            local otherHrp = otherP.Character:FindFirstChild("HumanoidRootPart")
+                            local hum = otherP.Character:FindFirstChildOfClass("Humanoid")
+                            if otherHrp and hum and hum.Health > 0 then
+                                local d = (hrp.Position - otherHrp.Position).Magnitude
+                                if d < closestDist then
+                                    closestDist = d
+                                    targetPos = otherHrp.Position
+                                end
+                            end
+                        end
+                    end
+                end
+                if targetPos then
+                    lastArtifactUsed = os.clock()
+                    useArtifact(targetPos)
+                end
+            end
+        end
+        task.wait(0.5)
+    end
+end)
+
 -- อีเวนต์ปุ่มเปิดปิด GUI
 toggleBtn.MouseButton1Click:Connect(function()
 	mainFrame.Visible = not mainFrame.Visible
@@ -1194,6 +1309,7 @@ local function cleanup()
         pcall(function() combatRemote:FireServer("ParryUp", nil) end)
     end
     isParrying = false
+    if artifactTask then task.cancel(artifactTask) artifactTask = nil end
     restoreHitboxes()
     for _, conn in ipairs(folderConnections) do conn:Disconnect() end
     for _, conn in ipairs(externalConnections) do conn:Disconnect() end
