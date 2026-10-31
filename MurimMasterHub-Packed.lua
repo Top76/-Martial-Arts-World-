@@ -100,6 +100,145 @@ local artifactCooldown = 2.0 -- ความถี่ในการยิง Ar
 local lastArtifactUsed = 0
 local artifactTask = nil
 
+-- 🎁 Auto Loot & Loot Filter Configuration
+local murimShared = nil
+pcall(function()
+    local murim = ReplicatedStorage:FindFirstChild("Murim") or ReplicatedStorage:WaitForChild("Murim", 5)
+    murimShared = murim and (murim:FindFirstChild("Shared") or murim:WaitForChild("Shared", 5))
+end)
+local murimItems = nil
+local murimConfig = nil
+local murimBossKeys = nil
+local murimItemColors = nil
+if murimShared then
+    pcall(function() murimItems = require(murimShared:WaitForChild("Items", 3)) end)
+    pcall(function() murimConfig = require(murimShared:WaitForChild("Config", 3)) end)
+    pcall(function() murimBossKeys = require(murimShared:WaitForChild("BossKeys", 3)) end)
+    pcall(function() murimItemColors = require(murimShared:WaitForChild("ItemColors", 3)) end)
+end
+
+local heavenGradeThreshold = 4
+if murimItems and murimItems.HeavenGrade then
+    heavenGradeThreshold = tonumber(murimItems.HeavenGrade) or 4
+end
+
+local LOOT_FILTER_OPTIONS = {
+    { text = "ทั้งหมด (All)", minIdx = 1 },
+    { text = "เขียวขึ้นไป (Uncommon+)", minIdx = 2 },
+    { text = "ฟ้าขึ้นไป (Rare+)", minIdx = 3 },
+    { text = "ม่วงขึ้นไป (Epic+)", minIdx = 4 },
+    { text = "ส้ม/ทอง (Legendary+)", minIdx = 5 }
+}
+local currentLootFilterIdx = 1
+
+local KEEP_CATS = {
+    ["Currency"] = true,
+    ["Quest"] = true,
+    ["Collectible"] = true,
+    ["Pet"] = true
+}
+
+local RARITY_MAP = {
+    ["Common"] = 1,
+    ["Uncommon"] = 2,
+    ["Rare"] = 3,
+    ["Epic"] = 4,
+    ["Legendary"] = 5
+}
+
+local openedChests = setmetatable({}, { __mode = "k" })
+
+local function isBossKey(id)
+    if not murimBossKeys or type(id) ~= "string" then return false end
+    local ok, res = pcall(function()
+        if type(murimBossKeys.of) == "function" then
+            return murimBossKeys.of(id) ~= nil
+        end
+        return false
+    end)
+    return ok and res or false
+end
+
+local function isChest(obj)
+    if not obj then return false end
+    local name = obj.Name:lower()
+    if name:find("chest") then return true end
+    for _, prompt in ipairs(obj:GetDescendants()) do
+        if prompt:IsA("ProximityPrompt") then
+            local action = (prompt.ActionText or ""):lower()
+            local objText = (prompt.ObjectText or ""):lower()
+            if action:find("open") or objText:find("chest") or prompt.Name:lower():find("chest") then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+local function shouldLootItem(drop)
+    if not drop or not drop.Parent then return false end
+    local personal = drop:GetAttribute("Personal")
+    local owner = drop:GetAttribute("Owner")
+    if personal == true and owner ~= player.UserId then
+        return false
+    end
+    if currentLootFilterIdx <= 1 then
+        return true
+    end
+    local itemId = drop:GetAttribute("ItemId")
+    if not itemId then
+        local p = drop:IsA("BasePart") and drop or drop:FindFirstChildWhichIsA("BasePart", true)
+        if p then itemId = p:GetAttribute("ItemId") end
+    end
+    if type(itemId) ~= "string" then
+        return true
+    end
+    local held = drop:GetAttribute("Held")
+    if held and owner == player.UserId then
+        return true
+    end
+    if drop:GetAttribute("Enchant") then
+        return true
+    end
+    local grade = tonumber(drop:GetAttribute("Grade"))
+    if grade and grade >= heavenGradeThreshold then
+        return true
+    end
+    local seaColor = drop:GetAttribute("SeaColor")
+    if type(seaColor) == "string" and murimItemColors and murimItemColors.tier then
+        local ok, tier = pcall(murimItemColors.tier, seaColor)
+        if ok and (tonumber(tier) or 0) >= 2 then
+            return true
+        end
+    end
+    local itemInfo = nil
+    if murimItems and murimItems.get then
+        local ok, info = pcall(murimItems.get, itemId)
+        if ok and type(info) == "table" then
+            itemInfo = info
+        end
+    end
+    if itemInfo then
+        if KEEP_CATS[itemInfo.cat] then
+            return true
+        end
+        if isBossKey(itemInfo.id or itemId) then
+            return true
+        end
+        local rIndex = 1
+        if murimConfig and murimConfig.rarityIndex then
+            local ok, idx = pcall(murimConfig.rarityIndex, itemInfo.rarity)
+            if ok and tonumber(idx) then
+                rIndex = tonumber(idx)
+            end
+        else
+            rIndex = RARITY_MAP[itemInfo.rarity] or 1
+        end
+        return rIndex >= currentLootFilterIdx
+    end
+    return true
+end
+
 local mainTask = nil
 local attackTask = nil
 local folderConnections = {}
@@ -543,7 +682,7 @@ settingsBody.Size = UDim2.new(1, 0, 1, -56)
 settingsBody.BackgroundTransparency = 1
 settingsBody.BorderSizePixel = 0
 settingsBody.ScrollBarThickness = 4
-settingsBody.CanvasSize = UDim2.new(0, 0, 0, 380)
+settingsBody.CanvasSize = UDim2.new(0, 0, 0, 430)
 settingsBody.Parent = settingsPage
 distLabel.Parent = settingsBody
 distLabel.Position = UDim2.new(0, 12, 0, 0)
@@ -555,12 +694,30 @@ placeButton(subDistBtn, settingsBody, 0.5, 4, 36, 0.5, -16)
 placeButton(toggleHitboxBtn, settingsBody, 0, 12, 84, 1, -24)
 placeButton(toggleLootBtn, settingsBody, 0, 12, 132, 1, -24)
 
+local toggleLootFilterBtn = Instance.new("TextButton")
+toggleLootFilterBtn.Name = "LootFilterToggle"
+toggleLootFilterBtn.Font = Enum.Font.SourceSansBold
+toggleLootFilterBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+toggleLootFilterBtn.TextSize = 13
+Instance.new("UICorner", toggleLootFilterBtn).CornerRadius = UDim.new(0, 6)
+placeButton(toggleLootFilterBtn, settingsBody, 0, 12, 180, 1, -24)
+local function displayLootFilter()
+    local opt = LOOT_FILTER_OPTIONS[currentLootFilterIdx]
+    toggleLootFilterBtn.Text = "🎁 กรองไอเทม: " .. (opt and opt.text or "ทั้งหมด (All)")
+    toggleLootFilterBtn.BackgroundColor3 = currentLootFilterIdx > 1 and Color3.fromRGB(40, 140, 80) or Color3.fromRGB(90, 60, 110)
+end
+toggleLootFilterBtn.MouseButton1Click:Connect(function()
+    currentLootFilterIdx = (currentLootFilterIdx % #LOOT_FILTER_OPTIONS) + 1
+    displayLootFilter()
+end)
+displayLootFilter()
+
 local toggleParryBtn = Instance.new("TextButton")
 toggleParryBtn.Name = "AutoParryToggle"
 toggleParryBtn.Font = Enum.Font.SourceSansBold
 toggleParryBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 Instance.new("UICorner", toggleParryBtn).CornerRadius = UDim.new(0, 6)
-placeButton(toggleParryBtn, settingsBody, 0, 12, 180, 1, -24)
+placeButton(toggleParryBtn, settingsBody, 0, 12, 228, 1, -24)
 local function displayParry()
     toggleParryBtn.Text = isAutoParry and "🛡️ ป้องกันอัตโนมัติ (Auto Parry: ON)" or "🛡️ ป้องกันอัตโนมัติ (Auto Parry: OFF)"
     toggleParryBtn.BackgroundColor3 = isAutoParry and Color3.fromRGB(40, 110, 150) or Color3.fromRGB(90, 60, 110)
@@ -581,7 +738,7 @@ toggleArtifactBtn.Name = "AutoArtifactToggle"
 toggleArtifactBtn.Font = Enum.Font.SourceSansBold
 toggleArtifactBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 Instance.new("UICorner", toggleArtifactBtn).CornerRadius = UDim.new(0, 6)
-placeButton(toggleArtifactBtn, settingsBody, 0, 12, 228, 1, -24)
+placeButton(toggleArtifactBtn, settingsBody, 0, 12, 276, 1, -24)
 local function displayArtifact()
     toggleArtifactBtn.Text = isAutoArtifact and "📿 ใช้อาวุธวิเศษ (Auto Artifact: ON)" or "📿 ใช้อาวุธวิเศษ (Auto Artifact: OFF)"
     toggleArtifactBtn.BackgroundColor3 = isAutoArtifact and Color3.fromRGB(40, 110, 150) or Color3.fromRGB(90, 60, 110)
@@ -601,7 +758,7 @@ antiAFKButton.Name = "AntiAFKToggle"
 antiAFKButton.Font = Enum.Font.SourceSansBold
 antiAFKButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 Instance.new("UICorner", antiAFKButton).CornerRadius = UDim.new(0, 6)
-placeButton(antiAFKButton, settingsBody, 0, 12, 276, 1, -24)
+placeButton(antiAFKButton, settingsBody, 0, 12, 324, 1, -24)
 local function displayAntiAFK()
     antiAFKButton.Text = antiAFKEnabled and "ป้องกัน AFK (Anti-AFK: ON)" or "ป้องกัน AFK (Anti-AFK: OFF)"
     antiAFKButton.BackgroundColor3 = antiAFKEnabled and Color3.fromRGB(40, 110, 150) or Color3.fromRGB(90, 60, 110)
@@ -630,7 +787,7 @@ externalConnections[#externalConnections + 1] = player.Idled:Connect(function()
         warn("[Murim Anti-AFK] " .. tostring(message))
     end
 end)
-placeButton(destroyBtn, settingsBody, 0, 12, 324, 1, -24)
+placeButton(destroyBtn, settingsBody, 0, 12, 372, 1, -24)
 
 -- Keep Start/Stop accessible from every page.
 local footer = Instance.new("Frame")
@@ -720,7 +877,6 @@ end
 
 local function interactWithDrop(dropItem)
 	if not dropItem or not dropItem.Parent then return end
-	if dropItem.Name == "LootChest_Wooden" or dropItem.Name == "LootChest_Iron" then return end
 
 	local character = player.Character
 	if not character or not character:FindFirstChild("HumanoidRootPart") then return end
@@ -730,10 +886,22 @@ local function interactWithDrop(dropItem)
 	if not targetPart then return end
 
 	hrp.CFrame = targetPart.CFrame
-	task.wait(0.1)
+	task.wait(0.05)
     if destroyed or not isFarming or not dropItem.Parent or (hubUI.isBusy and hubUI.isBusy()) then return end
-    local descendants = dropItem:GetDescendants()
 
+    if isChest(dropItem) then
+        openedChests[dropItem] = os.clock() + 10
+    end
+
+    if typeof(firetouchinterest) == "function" then
+        pcall(function()
+            firetouchinterest(hrp, targetPart, 0)
+            task.wait(0.01)
+            firetouchinterest(hrp, targetPart, 1)
+        end)
+    end
+
+    local descendants = dropItem:GetDescendants()
 	for _, desc in ipairs(descendants) do
         if destroyed or not isFarming or (hubUI.isBusy and hubUI.isBusy()) then return end
 		if desc:IsA("TouchTransmitter") or desc.Name == "TouchInterest" then
@@ -758,6 +926,9 @@ local function interactWithDrop(dropItem)
 				task.wait(holdTime + 0.05)
 				VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.E, false, game)
 			end
+            if isChest(dropItem) then
+                openedChests[dropItem] = os.clock() + 10
+            end
 			task.wait(0.05)
 		end
 	end
@@ -962,18 +1133,44 @@ local function startFarming()
 				local validDrop = nil
 				
 				if isAutoLooting and dropsFolder and not favoriteReady then
+					local bestItem = nil
+					local bestChest = nil
+					local bestItemDist = math.huge
+					local bestChestDist = math.huge
+					local hrpPos = hrp.Position
+
 					for _, drop in ipairs(dropsFolder:GetChildren()) do
-						if drop and drop.Parent and drop.Name ~= "LootChest_Wooden" and drop.Name ~= "LootChest_Iron" then
-							validDrop = drop
-							break
+						if drop and drop.Parent then
+							local part = drop:IsA("BasePart") and drop or (drop:IsA("Model") and drop.PrimaryPart) or drop:FindFirstChildWhichIsA("BasePart", true)
+							if part then
+								local dist = (part.Position - hrpPos).Magnitude
+								if isChest(drop) then
+									local cooldown = openedChests[drop]
+									if not cooldown or os.clock() >= cooldown then
+										local prompt = drop:FindFirstChildWhichIsA("ProximityPrompt", true)
+										if prompt and prompt.Enabled and dist < bestChestDist then
+											bestChest = drop
+											bestChestDist = dist
+										end
+									end
+								else
+									if shouldLootItem(drop) and dist < bestItemDist then
+										bestItem = drop
+										bestItemDist = dist
+									end
+								end
+							end
 						end
 					end
+
+					-- Always prioritize dropped items first! Chests only opened when ground is clear of loot.
+					validDrop = bestItem or bestChest
 				end
 
 				if validDrop then
 					currentTarget = nil
 					interactWithDrop(validDrop)
-					task.wait(0.1)
+					task.wait(0.08)
 				else
 
 					if aliveStatus and targetCF and npcObj then
