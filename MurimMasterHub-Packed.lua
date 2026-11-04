@@ -269,6 +269,7 @@ end
 
 -- ⚙️ ตั้งค่าระยะมุดใต้ตัวมอนสเตอร์ และขนาด Hitbox
 local heightUnder = -10
+local farmPositionMode = "below" -- "below" = มุดใต้ตัว | "above" = ด้านบน
 local lyingRotation = CFrame.Angles(math.rad(90), 0, 0)
 local HITBOX_SIZE = Vector3.new(12, 12, 12)
 local HITBOX_TRANSPARENCY = 0.7
@@ -463,7 +464,8 @@ distLabel.TextSize = 13
 distLabel.Parent = mainFrame
 
 local function updateDistText()
-	distLabel.Text = string.format("📏 ระยะมุดใต้ตัว: %.1f studs", heightUnder)
+	local modeStr = farmPositionMode == "above" and "ด้านบน ⬆️" or "ด้านล่าง ⬇️"
+	distLabel.Text = string.format("📏 ระยะ: %.1f studs | %s", math.abs(heightUnder), modeStr)
 end
 updateDistText()
 
@@ -682,7 +684,7 @@ settingsBody.Size = UDim2.new(1, 0, 1, -56)
 settingsBody.BackgroundTransparency = 1
 settingsBody.BorderSizePixel = 0
 settingsBody.ScrollBarThickness = 4
-settingsBody.CanvasSize = UDim2.new(0, 0, 0, 430)
+settingsBody.CanvasSize = UDim2.new(0, 0, 0, 480)
 settingsBody.Parent = settingsPage
 distLabel.Parent = settingsBody
 distLabel.Position = UDim2.new(0, 12, 0, 0)
@@ -787,7 +789,29 @@ externalConnections[#externalConnections + 1] = player.Idled:Connect(function()
         warn("[Murim Anti-AFK] " .. tostring(message))
     end
 end)
-placeButton(destroyBtn, settingsBody, 0, 12, 372, 1, -24)
+local togglePositionBtn = Instance.new("TextButton")
+togglePositionBtn.Name = "PositionModeToggle"
+togglePositionBtn.Font = Enum.Font.SourceSansBold
+togglePositionBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+togglePositionBtn.TextSize = 13
+Instance.new("UICorner", togglePositionBtn).CornerRadius = UDim.new(0, 6)
+placeButton(togglePositionBtn, settingsBody, 0, 12, 372, 1, -24)
+local function displayPositionMode()
+    if farmPositionMode == "above" then
+        togglePositionBtn.Text = "⬆️ วาปอยู่ด้านบน (นอนคว่ำหันลง)"
+        togglePositionBtn.BackgroundColor3 = Color3.fromRGB(100, 60, 160)
+    else
+        togglePositionBtn.Text = "⬇️ วาปอยู่ด้านล่าง (มุดใต้ตัว)"
+        togglePositionBtn.BackgroundColor3 = Color3.fromRGB(40, 110, 150)
+    end
+end
+togglePositionBtn.MouseButton1Click:Connect(function()
+    farmPositionMode = farmPositionMode == "below" and "above" or "below"
+    displayPositionMode()
+    updateDistText()
+end)
+displayPositionMode()
+placeButton(destroyBtn, settingsBody, 0, 12, 420, 1, -24)
 
 -- Keep Start/Stop accessible from every page.
 local footer = Instance.new("Frame")
@@ -1175,7 +1199,9 @@ local function startFarming()
 
 					if aliveStatus and targetCF and npcObj then
 						currentTarget = npcObj
-						hrp.CFrame = targetCF * CFrame.new(0, heightUnder, 0) * lyingRotation
+						local signedHeight = farmPositionMode == "above" and math.abs(heightUnder) or heightUnder
+						local farmRotation = farmPositionMode == "above" and CFrame.Angles(math.rad(-90), 0, 0) or lyingRotation
+						hrp.CFrame = targetCF * CFrame.new(0, signedHeight, 0) * farmRotation
 					else
 						currentTarget = nil
 					end
