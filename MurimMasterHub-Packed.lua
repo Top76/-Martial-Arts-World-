@@ -2027,13 +2027,6 @@ local function getHighestLevelTarget()
 end
 
 local function refreshTPButtons()
-    for npcName in pairs(savedNPCPositions) do
-        local lvl = knownNPCNames[npcName] or 0
-        if lvl <= 0 then
-            savedNPCPositions[npcName] = nil
-        end
-    end
-
     local signature = listSignature(savedNPCPositions, knownNPCNames)
     if signature == tpSignature then return end
     tpSignature = signature
@@ -2044,9 +2037,7 @@ local function refreshTPButtons()
 	local sortedList = {}
 	for npcName, cf in pairs(savedNPCPositions) do
 		local level = knownNPCNames[npcName] or 0
-        if level > 0 then
-		    table.insert(sortedList, {Name = npcName, Level = level, CFrame = cf})
-        end
+		table.insert(sortedList, {Name = npcName, Level = level, CFrame = cf})
 	end
 
 	table.sort(sortedList, function(a, b)
@@ -2055,14 +2046,14 @@ local function refreshTPButtons()
 	end)
 
 	for idx, item in ipairs(sortedList) do
-		local levelText = item.Level > 0 and string.format(" [Lv.%d]", item.Level) or ""
+		local levelText = item.Level > 0 and string.format(" [Lv.%d]", item.Level) or " [NPC]"
 		local displayText = "🌀 วาร์ปไป: " .. item.Name .. levelText
 
 		local tpBtn = Instance.new("TextButton")
 		tpBtn.Name = "TP_" .. item.Name
 		tpBtn.Size = UDim2.new(1, -8, 0, 28)
 		tpBtn.LayoutOrder = idx
-		tpBtn.BackgroundColor3 = Color3.fromRGB(90, 50, 140)
+		tpBtn.BackgroundColor3 = item.Level > 0 and Color3.fromRGB(90, 50, 140) or Color3.fromRGB(45, 75, 120)
 		tpBtn.Text = displayText
 		tpBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 		tpBtn.Font = Enum.Font.SourceSansBold
@@ -2084,18 +2075,15 @@ local function refreshTPButtons()
 	end
 end
 
--- บันทึกพิกัดมอนสเตอร์ + บันทึกรายชื่อ (แก้บัคการข้ามชื่อมอนสเตอร์)
+-- บันทึกพิกัดมอนสเตอร์และ NPC (แสดงในหมวดหมู่วาร์ป)
 local function autoSaveNPCPosition(npc)
 	if not npc or not npc:IsA("Model") then return end
-    if isFriendlyOrTalkable(npc) then return end
 	
 	local lvl = getNPCLevel(npc)
-    if lvl <= 0 then return end -- In Murim, attackable monsters always have Level > 0! Talkable NPCs have no level.
-
 	knownNPCNames[npc.Name] = math.max(knownNPCNames[npc.Name] or 0, lvl)
 
 	local targetPart = npc:FindFirstChild("HumanoidRootPart") or npc.PrimaryPart or npc:FindFirstChild("Torso")
-	if targetPart and isAlive(npc) then
+	if targetPart then
 		if not savedNPCPositions[npc.Name] then
 			savedNPCPositions[npc.Name] = targetPart.CFrame
 			queueRefresh()
@@ -2259,14 +2247,14 @@ local function startFarming()
                         -- Teleport back to the monster's saved position so streaming loads them!
                         local returnCF = nil
                         for name, isFav in pairs(favoriteNPCNames) do
-                            if isFav and savedNPCPositions[name] then
+                            if isFav and savedNPCPositions[name] and (knownNPCNames[name] or 0) > 0 then
                                 returnCF = savedNPCPositions[name]
                                 break
                             end
                         end
                         if not returnCF then
                             for name, isSel in pairs(selectedNPCNames) do
-                                if isSel and savedNPCPositions[name] then
+                                if isSel and savedNPCPositions[name] and (knownNPCNames[name] or 0) > 0 then
                                     returnCF = savedNPCPositions[name]
                                     break
                                 end
@@ -2337,32 +2325,12 @@ refreshNPCList = function()
 	local npcsFolder = Workspace:FindFirstChild("Murim_NPCs")
 	if npcsFolder then
 		for _, npc in ipairs(npcsFolder:GetChildren()) do
-            local lvl = getNPCLevel(npc)
-            if isFriendlyOrTalkable(npc) or lvl <= 0 then
-                knownNPCNames[npc.Name] = nil
-                savedNPCPositions[npc.Name] = nil
-                selectedNPCNames[npc.Name] = nil
-                favoriteNPCNames[npc.Name] = nil
-            else
+            if not isFriendlyOrTalkable(npc) and getNPCLevel(npc) > 0 then
                 applyHitboxToNPC(npc)
-                autoSaveNPCPosition(npc)
             end
+            autoSaveNPCPosition(npc)
 		end
 	end
-
-    for name, lvl in pairs(knownNPCNames) do
-        if (lvl or 0) <= 0 then
-            knownNPCNames[name] = nil
-            savedNPCPositions[name] = nil
-            selectedNPCNames[name] = nil
-            favoriteNPCNames[name] = nil
-        end
-    end
-    for name in pairs(savedNPCPositions) do
-        if (knownNPCNames[name] or 0) <= 0 then
-            savedNPCPositions[name] = nil
-        end
-    end
 
     refreshTPButtons()
     local signature = listSignature(knownNPCNames, knownNPCNames)
