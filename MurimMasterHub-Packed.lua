@@ -1974,7 +1974,7 @@ end
 local function getHighestLevelTarget()
     local now = os.clock()
     if now < targetScanAt then
-        if cachedTarget and isAlive(cachedTarget) then
+        if cachedTarget and isAlive(cachedTarget) and getNPCLevel(cachedTarget) > 0 then
             local part = cachedTarget:FindFirstChild("HumanoidRootPart") or cachedTarget.PrimaryPart or cachedTarget:FindFirstChild("Torso")
             return part.CFrame, true, cachedTarget
         elseif not cachedTarget then
@@ -1983,7 +1983,7 @@ local function getHighestLevelTarget()
     end
     targetScanAt = now + TARGET_SCAN_INTERVAL
 	local npcsFolder = Workspace:FindFirstChild("Murim_NPCs")
-	local highestLevel = -1
+	local highestLevel = 0
 	local bestCFrame = nil
 	local bestNPCObj = nil
     local bestIsFavorite = false
@@ -2002,9 +2002,9 @@ local function getHighestLevelTarget()
 
 	if npcsFolder then
 		for _, npc in ipairs(npcsFolder:GetChildren()) do
-			if (favoriteNPCNames[npc.Name] or not hasSelection or selectedNPCNames[npc.Name]) and isAlive(npc) then
-				local level = getNPCLevel(npc)
-                local isFavorite = favoriteNPCNames[npc.Name] == true
+            local level = getNPCLevel(npc)
+			if level > 0 and (favoriteNPCNames[npc.Name] or not hasSelection or selectedNPCNames[npc.Name]) and isAlive(npc) then
+				local isFavorite = favoriteNPCNames[npc.Name] == true
 				local targetPart = npc:FindFirstChild("HumanoidRootPart") or npc.PrimaryPart or npc:FindFirstChild("Torso")
 				
 				if targetPart then
@@ -2027,6 +2027,13 @@ local function getHighestLevelTarget()
 end
 
 local function refreshTPButtons()
+    for npcName in pairs(savedNPCPositions) do
+        local lvl = knownNPCNames[npcName] or 0
+        if lvl <= 0 then
+            savedNPCPositions[npcName] = nil
+        end
+    end
+
     local signature = listSignature(savedNPCPositions, knownNPCNames)
     if signature == tpSignature then return end
     tpSignature = signature
@@ -2037,7 +2044,9 @@ local function refreshTPButtons()
 	local sortedList = {}
 	for npcName, cf in pairs(savedNPCPositions) do
 		local level = knownNPCNames[npcName] or 0
-		table.insert(sortedList, {Name = npcName, Level = level, CFrame = cf})
+        if level > 0 then
+		    table.insert(sortedList, {Name = npcName, Level = level, CFrame = cf})
+        end
 	end
 
 	table.sort(sortedList, function(a, b)
@@ -2081,6 +2090,8 @@ local function autoSaveNPCPosition(npc)
     if isFriendlyOrTalkable(npc) then return end
 	
 	local lvl = getNPCLevel(npc)
+    if lvl <= 0 then return end -- In Murim, attackable monsters always have Level > 0! Talkable NPCs have no level.
+
 	knownNPCNames[npc.Name] = math.max(knownNPCNames[npc.Name] or 0, lvl)
 
 	local targetPart = npc:FindFirstChild("HumanoidRootPart") or npc.PrimaryPart or npc:FindFirstChild("Torso")
@@ -2326,7 +2337,8 @@ refreshNPCList = function()
 	local npcsFolder = Workspace:FindFirstChild("Murim_NPCs")
 	if npcsFolder then
 		for _, npc in ipairs(npcsFolder:GetChildren()) do
-            if isFriendlyOrTalkable(npc) then
+            local lvl = getNPCLevel(npc)
+            if isFriendlyOrTalkable(npc) or lvl <= 0 then
                 knownNPCNames[npc.Name] = nil
                 savedNPCPositions[npc.Name] = nil
                 selectedNPCNames[npc.Name] = nil
@@ -2338,6 +2350,20 @@ refreshNPCList = function()
 		end
 	end
 
+    for name, lvl in pairs(knownNPCNames) do
+        if (lvl or 0) <= 0 then
+            knownNPCNames[name] = nil
+            savedNPCPositions[name] = nil
+            selectedNPCNames[name] = nil
+            favoriteNPCNames[name] = nil
+        end
+    end
+    for name in pairs(savedNPCPositions) do
+        if (knownNPCNames[name] or 0) <= 0 then
+            savedNPCPositions[name] = nil
+        end
+    end
+
     refreshTPButtons()
     local signature = listSignature(knownNPCNames, knownNPCNames)
     if signature == npcSignature then return end
@@ -2348,8 +2374,10 @@ refreshNPCList = function()
     end
 
 	local nameList = {}
-	for name, _ in pairs(knownNPCNames) do
-		table.insert(nameList, name)
+	for name, lvl in pairs(knownNPCNames) do
+        if (lvl or 0) > 0 then
+		    table.insert(nameList, name)
+        end
 	end
 
 	table.sort(nameList, function(a, b)
