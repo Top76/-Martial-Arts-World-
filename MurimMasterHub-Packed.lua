@@ -46,7 +46,7 @@ local source = [====[
 local report, finishNotice = ...
 -- Murim Master Hub: supplied farm GUI + Alchemy / Forge / Cultivation.
 -- Run the entire file once. Minus hides the menu; Destroy removes all systems.
--- No automatic reset, purchase, or breakthrough-start actions are added.
+-- Optional stage advancement uses the game Advance callback.
 if type(_G.ArtificeGuiCleanup) == "function" then
     pcall(_G.ArtificeGuiCleanup)
 end
@@ -84,6 +84,8 @@ local knownNPCNames = {}    -- รายชื่อมอนสเตอร์�
 local savedNPCPositions = {}-- บันทึกตำแหน่งมอนสเตอร์ [Name] = CFrame (Auto Save)
 local favoriteNPCNames = {} -- [Name] = true; priority targets for this session
 local currentTarget = nil
+local bossFarm = {enabled = false, selected = {}, cache = {}, active = nil}
+local chooseBossTarget
 
 local isFarming = false
 local isAutoLooting = true -- เปิดใช้งาน Auto Loot เป็นค่าเริ่มต้น
@@ -646,8 +648,8 @@ local function makePage(name, index, caption)
     pages[index] = page
     local tab = Instance.new("TextButton")
     tab.Name = name .. "Tab"
-    tab.Size = UDim2.new(1 / 3, -4, 0, 38)
-    tab.Position = UDim2.new(((index - 1) % 3) / 3, ((index - 1) % 3) * 2, 0, math.floor((index - 1) / 3) * 44)
+    tab.Size = UDim2.new(1 / 4, -4, 0, 38)
+    tab.Position = UDim2.new(((index - 1) % 4) / 4, ((index - 1) % 4) * 2, 0, math.floor((index - 1) / 4) * 44)
     tab.BorderSizePixel = 0
     tab.Font = Enum.Font.SourceSansBold
     tab.TextSize = 15
@@ -658,6 +660,800 @@ local function makePage(name, index, caption)
     tabs[index] = tab
     tab.MouseButton1Click:Connect(function() showPage(index) end)
     return page
+end
+
+do
+    local page = makePage("Hongmeng", 8, "Hongmeng / Qi")
+    local button = Instance.new("TextButton")
+    button.Size = UDim2.new(1, -24, 0, 48)
+    button.Position = UDim2.fromOffset(12, 12)
+    button.Text = "เปิด Hongmeng / Wild Qi / Discord"
+    button.TextColor3 = Color3.new(1, 1, 1)
+    button.BackgroundColor3 = Color3.fromRGB(72, 86, 147)
+    button.Parent = page
+    local loading = false
+    button.Activated:Connect(function()
+        if loading then return end
+        local gui = player:WaitForChild("PlayerGui"):FindFirstChild("MurimMultiWarpHub")
+        if gui then gui.Enabled = true return end
+        loading = true
+        task.spawn(function()
+            local program, reason = loadstring([==[
+-- ========================================================
+-- MURIM: AUTO HONGMENG & REAL-TIME WILD QI DETECTOR HUB (FIXED VERSION)
+-- ========================================================
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+
+local LocalPlayer = Players.LocalPlayer
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+local HongmengRemote = ReplicatedStorage:WaitForChild("Murim"):WaitForChild("Remotes"):FindFirstChild("Hongmeng")
+
+-- ลบ GUI เก่าหากรันซ้ำ
+if PlayerGui:FindFirstChild("MurimMultiWarpHub") then
+    PlayerGui.MurimMultiWarpHub:Destroy()
+end
+
+-- --------------------------------------------------------
+-- CONFIG & VARIABLES
+-- --------------------------------------------------------
+local Config = {
+    Enabled = false,
+    AutoTeleportWildQi = false,
+    DiscordWebhook = "", -- Set this in the Wild Qi List GUI.
+    DiscordNotify = true,
+}
+
+local Connections = {}
+
+
+-- แมปปุ่มทิศทางตรงกันข้าม (ครอบคลุม W/A/S/D, Arrow Keys และ Short Codes)
+local GradeColors = {
+    [99] = Color3.fromRGB(255, 60, 100), -- WildQi Special
+    [7]  = Color3.fromRGB(180, 40, 40),   -- Void
+    [6]  = Color3.fromRGB(220, 170, 40),  -- Mist/Fog
+    [5]  = Color3.fromRGB(130, 50, 200),  -- Thunder
+    [0]  = Color3.fromRGB(60, 100, 160)   -- General
+}
+
+local GradeNames = {
+    [99] = "★ WildQi (Special Target)",
+    [7]  = "Grade 7 (Void)",
+    [6]  = "Grade 6 (Mist/Fog)",
+    [5]  = "Grade 5 (Thunder)",
+}
+
+-- --------------------------------------------------------
+-- CREATE MAIN GUI
+-- --------------------------------------------------------
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "MurimMultiWarpHub"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.Parent = PlayerGui
+ScreenGui.Destroying:Connect(function()
+    for _, connection in ipairs(Connections) do connection:Disconnect() end
+    table.clear(Connections)
+end)
+
+local MainFrame = Instance.new("Frame")
+MainFrame.Name = "MainFrame"
+MainFrame.Size = UDim2.new(0, 310, 0, 290)
+MainFrame.Position = UDim2.new(0.5, -155, 0.35, -145)
+MainFrame.BackgroundColor3 = Color3.fromRGB(24, 24, 30)
+MainFrame.BorderSizePixel = 0
+MainFrame.Active = true
+MainFrame.Parent = ScreenGui
+
+local MainUICorner = Instance.new("UICorner")
+MainUICorner.CornerRadius = UDim.new(0, 8)
+MainUICorner.Parent = MainFrame
+
+-- Header Bar
+local Header = Instance.new("Frame")
+Header.Name = "Header"
+Header.Size = UDim2.new(1, 0, 0, 35)
+Header.BackgroundColor3 = Color3.fromRGB(36, 36, 45)
+Header.BorderSizePixel = 0
+Header.Parent = MainFrame
+
+local HeaderCorner = Instance.new("UICorner")
+HeaderCorner.CornerRadius = UDim.new(0, 8)
+HeaderCorner.Parent = Header
+
+local Title = Instance.new("TextLabel")
+Title.Name = "Title"
+Title.Size = UDim2.new(1, -70, 1, 0)
+Title.Position = UDim2.new(0, 10, 0, 0)
+Title.BackgroundTransparency = 1
+Title.Text = "Murim Real-time Detector Hub"
+Title.TextColor3 = Color3.fromRGB(240, 240, 240)
+Title.TextSize = 13
+Title.Font = Enum.Font.SourceSansBold
+Title.TextXAlignment = Enum.TextXAlignment.Left
+Title.Parent = Header
+
+local MinimizeBtn = Instance.new("TextButton")
+MinimizeBtn.Name = "MinimizeBtn"
+MinimizeBtn.Size = UDim2.new(0, 24, 0, 24)
+MinimizeBtn.Position = UDim2.new(1, -55, 0, 5)
+MinimizeBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 75)
+MinimizeBtn.Text = "-"
+MinimizeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+MinimizeBtn.TextSize = 16
+MinimizeBtn.Font = Enum.Font.SourceSansBold
+MinimizeBtn.Parent = Header
+
+local MinBtnCorner = Instance.new("UICorner")
+MinBtnCorner.CornerRadius = UDim.new(0, 4)
+MinBtnCorner.Parent = MinimizeBtn
+
+local DestroyBtn = Instance.new("TextButton")
+DestroyBtn.Name = "DestroyBtn"
+DestroyBtn.Size = UDim2.new(0, 24, 0, 24)
+DestroyBtn.Position = UDim2.new(1, -28, 0, 5)
+DestroyBtn.BackgroundColor3 = Color3.fromRGB(180, 45, 45)
+DestroyBtn.Text = "X"
+DestroyBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+DestroyBtn.TextSize = 13
+DestroyBtn.Font = Enum.Font.SourceSansBold
+DestroyBtn.Parent = Header
+
+local DestroyBtnCorner = Instance.new("UICorner")
+DestroyBtnCorner.CornerRadius = UDim.new(0, 4)
+DestroyBtnCorner.Parent = DestroyBtn
+
+local ContentFrame = Instance.new("Frame")
+ContentFrame.Name = "ContentFrame"
+ContentFrame.Size = UDim2.new(1, 0, 1, -35)
+ContentFrame.Position = UDim2.new(0, 0, 0, 35)
+ContentFrame.BackgroundTransparency = 1
+ContentFrame.Parent = MainFrame
+
+local TabBar = Instance.new("Frame")
+TabBar.Name = "TabBar"
+TabBar.Size = UDim2.new(1, -20, 0, 25)
+TabBar.Position = UDim2.new(0, 10, 0, 6)
+TabBar.BackgroundTransparency = 1
+TabBar.Parent = ContentFrame
+
+local AutoTabBtn = Instance.new("TextButton")
+AutoTabBtn.Name = "AutoTabBtn"
+AutoTabBtn.Size = UDim2.new(0.48, 0, 1, 0)
+AutoTabBtn.Position = UDim2.new(0, 0, 0, 0)
+AutoTabBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 65)
+AutoTabBtn.Text = "Hongmeng"
+AutoTabBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+AutoTabBtn.TextSize = 12
+AutoTabBtn.Font = Enum.Font.SourceSansBold
+AutoTabBtn.Parent = TabBar
+
+local AutoTabCorner = Instance.new("UICorner")
+AutoTabCorner.CornerRadius = UDim.new(0, 4)
+AutoTabCorner.Parent = AutoTabBtn
+
+local TeleportTabBtn = Instance.new("TextButton")
+TeleportTabBtn.Name = "TeleportTabBtn"
+TeleportTabBtn.Size = UDim2.new(0.48, 0, 1, 0)
+TeleportTabBtn.Position = UDim2.new(0.52, 0, 0, 0)
+TeleportTabBtn.BackgroundColor3 = Color3.fromRGB(35, 35, 45)
+TeleportTabBtn.Text = "Wild Qi List"
+TeleportTabBtn.TextColor3 = Color3.fromRGB(150, 150, 150)
+TeleportTabBtn.TextSize = 12
+TeleportTabBtn.Font = Enum.Font.SourceSansBold
+TeleportTabBtn.Parent = TabBar
+
+local TeleportTabCorner = Instance.new("UICorner")
+TeleportTabCorner.CornerRadius = UDim.new(0, 4)
+TeleportTabCorner.Parent = TeleportTabBtn
+
+local PagesFolder = Instance.new("Folder")
+PagesFolder.Name = "Pages"
+PagesFolder.Parent = ContentFrame
+
+-- PAGE 1: HONGMENG AUTO
+local AutoPage = Instance.new("Frame")
+AutoPage.Name = "AutoPage"
+AutoPage.Size = UDim2.new(1, 0, 1, -35)
+AutoPage.Position = UDim2.new(0, 0, 0, 35)
+AutoPage.BackgroundTransparency = 1
+AutoPage.Visible = true
+AutoPage.Parent = PagesFolder
+
+local ToggleBtn = Instance.new("TextButton")
+ToggleBtn.Name = "ToggleBtn"
+ToggleBtn.Size = UDim2.new(1, -20, 0, 40)
+ToggleBtn.Position = UDim2.new(0, 10, 0, 8)
+ToggleBtn.BackgroundColor3 = Color3.fromRGB(160, 40, 40)
+ToggleBtn.Text = "AUTO HONGMENG: OFF"
+ToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+ToggleBtn.TextSize = 13
+ToggleBtn.Font = Enum.Font.SourceSansBold
+ToggleBtn.Parent = AutoPage
+
+local ToggleBtnCorner = Instance.new("UICorner")
+ToggleBtnCorner.CornerRadius = UDim.new(0, 6)
+ToggleBtnCorner.Parent = ToggleBtn
+
+local StatusLabel = Instance.new("TextLabel")
+StatusLabel.Name = "StatusLabel"
+StatusLabel.Size = UDim2.new(1, -20, 0, 60)
+StatusLabel.Position = UDim2.new(0, 10, 0, 56)
+StatusLabel.BackgroundTransparency = 1
+StatusLabel.Text = "สถานะ: ปิดการทำงาน\n(ระบบตรวจสอบเงื่อนไขและยิง Remote อัตโนมัติ)"
+StatusLabel.TextColor3 = Color3.fromRGB(170, 170, 170)
+StatusLabel.TextSize = 12
+StatusLabel.Font = Enum.Font.SourceSans
+StatusLabel.TextWrapped = true
+StatusLabel.Parent = AutoPage
+
+local SearchBtn = ToggleBtn:Clone()
+SearchBtn.Name = "SearchStage"
+SearchBtn.Text = "เริ่ม Auto H จากข้อมูลพิธี"
+SearchBtn.Size = UDim2.new(1, -20, 0, 34)
+SearchBtn.Position = UDim2.fromOffset(10, 122)
+SearchBtn.BackgroundColor3 = Color3.fromRGB(45, 100, 160)
+SearchBtn.Parent = AutoPage
+
+-- PAGE 2: WILD QI LIST
+local TeleportPage = Instance.new("Frame")
+TeleportPage.Name = "TeleportPage"
+TeleportPage.Size = UDim2.new(1, 0, 1, -35)
+TeleportPage.Position = UDim2.new(0, 0, 0, 35)
+TeleportPage.BackgroundTransparency = 1
+TeleportPage.Visible = false
+TeleportPage.Parent = PagesFolder
+
+local RefreshBtn = Instance.new("TextButton")
+RefreshBtn.Name = "RefreshBtn"
+RefreshBtn.Size = UDim2.new(0.48, -5, 0, 30)
+RefreshBtn.Position = UDim2.new(0, 10, 0, 6)
+RefreshBtn.BackgroundColor3 = Color3.fromRGB(40, 110, 180)
+RefreshBtn.Text = "🔄 Refresh List"
+RefreshBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+RefreshBtn.TextSize = 12
+RefreshBtn.Font = Enum.Font.SourceSansBold
+RefreshBtn.Parent = TeleportPage
+
+local RefreshBtnCorner = Instance.new("UICorner")
+RefreshBtnCorner.CornerRadius = UDim.new(0, 4)
+RefreshBtnCorner.Parent = RefreshBtn
+
+local AutoWarpBtn = Instance.new("TextButton")
+AutoWarpBtn.Name = "AutoWarpBtn"
+AutoWarpBtn.Size = UDim2.new(0.48, -5, 0, 30)
+AutoWarpBtn.Position = UDim2.new(0.52, 0, 0, 6)
+AutoWarpBtn.BackgroundColor3 = Color3.fromRGB(160, 40, 40)
+AutoWarpBtn.Text = "AUTO BEST: OFF"
+AutoWarpBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+AutoWarpBtn.TextSize = 12
+AutoWarpBtn.Font = Enum.Font.SourceSansBold
+AutoWarpBtn.Parent = TeleportPage
+
+local AutoWarpCorner = Instance.new("UICorner")
+AutoWarpCorner.CornerRadius = UDim.new(0, 4)
+AutoWarpCorner.Parent = AutoWarpBtn
+
+local WebhookBox = Instance.new("TextBox")
+WebhookBox.Name = "DiscordWebhook"
+WebhookBox.Size = UDim2.new(1, -20, 0, 30)
+WebhookBox.Position = UDim2.fromOffset(10, 42)
+WebhookBox.BackgroundColor3 = Color3.fromRGB(36, 36, 45)
+WebhookBox.TextColor3 = Color3.fromRGB(240, 240, 240)
+WebhookBox.PlaceholderText = "Discord Webhook URL · กด Enter"
+WebhookBox.Text = Config.DiscordWebhook
+WebhookBox.ClearTextOnFocus = false
+WebhookBox.MultiLine = false
+WebhookBox.TextSize = 12
+WebhookBox.Font = Enum.Font.SourceSans
+WebhookBox.TextXAlignment = Enum.TextXAlignment.Left
+WebhookBox.Parent = TeleportPage
+
+local WebhookStatus = Instance.new("TextLabel")
+WebhookStatus.Size = UDim2.new(1, -20, 0, 24)
+WebhookStatus.Position = UDim2.fromOffset(10, 74)
+WebhookStatus.BackgroundTransparency = 1
+WebhookStatus.TextColor3 = Color3.fromRGB(190, 190, 200)
+WebhookStatus.TextSize = 12
+WebhookStatus.Font = Enum.Font.SourceSans
+WebhookStatus.Text = "ใส่ Webhook เพื่อแจ้งเกรด 11 / 12 / 13"
+WebhookStatus.Parent = TeleportPage
+local ScrollList = Instance.new("ScrollingFrame")
+ScrollList.Name = "ScrollList"
+ScrollList.Size = UDim2.new(1, -20, 1, -108)
+ScrollList.Position = UDim2.new(0, 10, 0, 100)
+ScrollList.BackgroundColor3 = Color3.fromRGB(18, 18, 24)
+ScrollList.BorderSizePixel = 0
+ScrollList.ScrollBarThickness = 4
+ScrollList.CanvasSize = UDim2.new(0, 0, 0, 0)
+ScrollList.Parent = TeleportPage
+
+local ScrollCorner = Instance.new("UICorner")
+ScrollCorner.CornerRadius = UDim.new(0, 6)
+ScrollCorner.Parent = ScrollList
+
+local UIListLayout = Instance.new("UIListLayout")
+UIListLayout.Parent = ScrollList
+UIListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+UIListLayout.Padding = UDim.new(0, 4)
+
+-- --------------------------------------------------------
+-- LOGIC: WILD QI SCANNER
+-- --------------------------------------------------------
+local function scanAllWildQi()
+    local folder = Workspace:FindFirstChild("Murim_WildQi")
+    local qiList = {}
+    if not folder then return qiList end
+
+    for _, desc in ipairs(folder:GetDescendants()) do
+        if desc.Name == "WildQi" or desc.Name:find("WildQi") then
+            local targetPart = desc:IsA("BasePart") and desc or (desc:IsA("Model") and (desc.PrimaryPart or desc:FindFirstChildWhichIsA("BasePart")))
+            if targetPart then
+                table.insert(qiList, {
+                    Target = targetPart,
+                    Grade = tonumber(desc:GetAttribute("Grade"))
+                        or tonumber(targetPart:GetAttribute("Grade"))
+                        or tonumber(desc.Parent:GetAttribute("Grade")) or 99,
+                    Name = "WildQi (Direct Target)"
+                })
+            end
+        elseif desc:IsA("BasePart") and desc.Name == "QiSpot" and desc:GetAttribute("Wild") == true then
+            local grade = tonumber(desc:GetAttribute("Grade")) or 0
+            table.insert(qiList, {
+                Target = desc,
+                Grade = grade,
+                Name = GradeNames[grade] or ("QiSpot Grade " .. tostring(grade))
+            })
+        end
+    end
+
+    table.sort(qiList, function(a, b)
+        return a.Grade > b.Grade
+    end)
+
+    return qiList
+end
+
+-- Discord notifications run separately so HTTP cannot block the trial loop.
+local HttpService = game:GetService("HttpService")
+local sendRequest = request or http_request or (syn and syn.request)
+local notified = setmetatable({}, {__mode = "k"})
+local notifyAlive = true
+local webhookRevision = 0
+local retryAt = 0
+WebhookBox.FocusLost:Connect(function(enterPressed)
+    if not enterPressed then return end
+    local url = WebhookBox.Text:match("^%s*(.-)%s*$")
+    if url ~= "" and not url:match("^https://discord%.com/api/webhooks/%d+/[%w_-]+$")
+        and not url:match("^https://discord%.com/api/v%d+/webhooks/%d+/[%w_-]+$") then
+        WebhookStatus.Text = "URL ไม่ถูกต้อง · ใช้ URL Webhook จาก Discord"
+        return
+    end
+    if url ~= "" and type(sendRequest) ~= "function" then
+        WebhookStatus.Text = "ตัวรันนี้ไม่มีฟังก์ชันส่ง HTTP"
+        return
+    end
+    Config.DiscordWebhook = url
+    Config.DiscordNotify = url ~= ""
+    webhookRevision = webhookRevision + 1
+    table.clear(notified)
+    retryAt = 0
+    WebhookStatus.Text = url == "" and "ปิดแจ้ง Discord แล้ว" or "เปิดแจ้งแล้ว · รอ Wild Qi เกรด 11–13"
+end)
+ScreenGui.Destroying:Connect(function()
+    notifyAlive = false
+end)
+
+task.spawn(function()
+    while notifyAlive do
+        if Config.DiscordNotify and Config.DiscordWebhook ~= "" and time() >= retryAt then
+            if type(sendRequest) ~= "function" then
+                warn("[Wild Qi] Discord requires an executor with an HTTP request function.")
+                break
+            end
+            local batch, lines, included = {}, {}, {}
+            for _, item in ipairs(scanAllWildQi()) do
+                local grade = item.Grade
+                local target = item.Target
+                if (grade == 11 or grade == 12 or grade == 13)
+                    and notified[target] ~= grade and not included[target] then
+                    included[target] = true
+                    table.insert(batch, {target = target, grade = grade})
+                    local position = target.Position
+                    table.insert(lines, string.format("Wild Qi Grade %d · (%.0f, %.0f, %.0f)",
+                        grade, position.X, position.Y, position.Z))
+                    if #batch >= 10 then break end
+                end
+            end
+            if #batch > 0 then
+                table.insert(lines, "Place ID: " .. tostring(game.PlaceId))
+                table.insert(lines, "Server ID: " .. game.JobId)
+                local revision = webhookRevision
+                local url = Config.DiscordWebhook
+                url = url .. (string.find(url, "?", 1, true) and "&" or "?") .. "wait=true"
+                local ok, response = pcall(sendRequest, {
+                    Url = url,
+                    Method = "POST",
+                    Headers = {["Content-Type"] = "application/json"},
+                    Body = HttpService:JSONEncode({
+                        content = table.concat(lines, "\n"),
+                        allowed_mentions = {parse = {}}
+                    })
+                })
+                if not notifyAlive then return end
+                if revision ~= webhookRevision then continue end
+                local status = ok and type(response) == "table" and tonumber(response.StatusCode)
+                if status and status >= 200 and status < 300 then
+                    for _, entry in ipairs(batch) do
+                        notified[entry.target] = entry.grade
+                    end
+                    retryAt = time() + 5
+                    WebhookStatus.Text = "ส่ง Discord สำเร็จ · " .. tostring(#batch) .. " จุด"
+                else
+                    local delay = 30
+                    if status == 429 then
+                        local decoded, body = pcall(HttpService.JSONDecode, HttpService, response.Body or "")
+                        if decoded and type(body) == "table" then
+                            delay = math.max(delay, tonumber(body.retry_after) or 0)
+                        end
+                    elseif status == 401 or status == 403 or status == 404 then
+                        Config.DiscordNotify = false
+                        WebhookStatus.Text = "Webhook ถูกปฏิเสธ · ใส่ URL ใหม่แล้ว Enter"
+                    end
+                    warn("[Wild Qi] Discord delivery failed; retrying later. HTTP " .. tostring(status))
+                    retryAt = time() + delay
+                    if Config.DiscordNotify then
+                        WebhookStatus.Text = "ส่งไม่สำเร็จ · จะลองใหม่ใน " .. tostring(delay) .. " วินาที"
+                    end
+                end
+            end
+        end
+        task.wait(5)
+    end
+end)
+local function refreshQiButtons()
+    for _, child in ipairs(ScrollList:GetChildren()) do
+        if child:IsA("TextButton") or child:IsA("TextLabel") then
+            child:Destroy()
+        end
+    end
+
+    local qiList = scanAllWildQi()
+
+    if #qiList == 0 then
+        local emptyLabel = Instance.new("TextLabel")
+        emptyLabel.Size = UDim2.new(1, 0, 0, 40)
+        emptyLabel.BackgroundTransparency = 1
+        emptyLabel.Text = "ไม่พบจุด Wild Qi เกิดในแผนที่ขณะนี้"
+        emptyLabel.TextColor3 = Color3.fromRGB(150, 150, 150)
+        emptyLabel.TextSize = 12
+        emptyLabel.Font = Enum.Font.SourceSans
+        emptyLabel.Parent = ScrollList
+        ScrollList.CanvasSize = UDim2.new(0, 0, 0, 50)
+        return
+    end
+
+    for i, item in ipairs(qiList) do
+        local btnColor = GradeColors[item.Grade] or GradeColors[0]
+
+        local itemBtn = Instance.new("TextButton")
+        itemBtn.Name = "QiItem_" .. tostring(i)
+        itemBtn.Size = UDim2.new(1, -6, 0, 32)
+        itemBtn.BackgroundColor3 = btnColor
+        itemBtn.Text = string.format("[%d] %s - Click to Warp", i, item.Name)
+        itemBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        itemBtn.TextSize = 12
+        itemBtn.Font = Enum.Font.SourceSansBold
+        itemBtn.LayoutOrder = i
+        itemBtn.Parent = ScrollList
+
+        local itemCorner = Instance.new("UICorner")
+        itemCorner.CornerRadius = UDim.new(0, 4)
+        itemCorner.Parent = itemBtn
+
+        itemBtn.MouseButton1Click:Connect(function()
+            local char = LocalPlayer.Character
+            if char and char:FindFirstChild("HumanoidRootPart") and item.Target and item.Target.Parent then
+                char.HumanoidRootPart.CFrame = (item.Target:IsA("Model") and item.Target:GetPivot() or item.Target.CFrame) + Vector3.new(0, 3, 0)
+                itemBtn.Text = "✅ Warped Successfully!"
+                task.delay(1.5, function()
+                    if itemBtn and itemBtn.Parent then
+                        itemBtn.Text = string.format("[%d] %s - Click to Warp", i, item.Name)
+                    end
+                end)
+            end
+        end)
+    end
+
+    ScrollList.CanvasSize = UDim2.new(0, 0, 0, (#qiList * 36) + 10)
+end
+
+-- LISTENERS WORKSPACE.MURIM_WILDQI
+task.spawn(function()
+    local wildQiFolder = Workspace:WaitForChild("Murim_WildQi", 10)
+    if wildQiFolder then
+        table.insert(Connections, wildQiFolder.DescendantAdded:Connect(function(desc)
+            if desc.Name == "WildQi" or (desc:IsA("BasePart") and desc.Name == "QiSpot") then
+                task.defer(refreshQiButtons)
+            end
+        end))
+
+        table.insert(Connections, wildQiFolder.DescendantRemoving:Connect(function(desc)
+            if desc.Name == "WildQi" or (desc:IsA("BasePart") and desc.Name == "QiSpot") then
+                task.defer(refreshQiButtons)
+            end
+        end))
+    end
+end)
+
+-- TAB CONTROLS & GUI EVENTS
+AutoTabBtn.MouseButton1Click:Connect(function()
+    AutoPage.Visible = true
+    TeleportPage.Visible = false
+    AutoTabBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 65)
+    AutoTabBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    TeleportTabBtn.BackgroundColor3 = Color3.fromRGB(35, 35, 45)
+    TeleportTabBtn.TextColor3 = Color3.fromRGB(150, 150, 150)
+end)
+
+TeleportTabBtn.MouseButton1Click:Connect(function()
+    AutoPage.Visible = false
+    TeleportPage.Visible = true
+    TeleportTabBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 65)
+    TeleportTabBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    AutoTabBtn.BackgroundColor3 = Color3.fromRGB(35, 35, 45)
+    AutoTabBtn.TextColor3 = Color3.fromRGB(150, 150, 150)
+    refreshQiButtons()
+end)
+
+RefreshBtn.MouseButton1Click:Connect(function()
+    refreshQiButtons()
+end)
+
+-- Dragging logic
+local dragging, dragInput, dragStart, startPos
+Header.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = true
+        dragStart = input.Position
+        startPos = MainFrame.Position
+
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                dragging = false
+            end
+        end)
+    end
+end)
+
+Header.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+        dragInput = input
+    end
+end)
+
+table.insert(Connections, UserInputService.InputChanged:Connect(function(input)
+    if input == dragInput and dragging then
+        local delta = input.Position - dragStart
+        MainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+    end
+end))
+
+local isMinimized = false
+MinimizeBtn.MouseButton1Click:Connect(function()
+    isMinimized = not isMinimized
+    ContentFrame.Visible = not isMinimized
+    MainFrame.Size = isMinimized and UDim2.new(0, 310, 0, 35) or UDim2.new(0, 310, 0, 290)
+    MinimizeBtn.Text = isMinimized and "+" or "-"
+end)
+
+DestroyBtn.MouseButton1Click:Connect(function()
+    Config.Enabled = false
+    Config.AutoTeleportWildQi = false
+    for _, conn in ipairs(Connections) do
+        if conn then conn:Disconnect() end
+    end
+    table.clear(Connections)
+    ScreenGui:Destroy()
+    print("[SUCCESS] GUI Destroyed Successfully!")
+end)
+
+
+local function setEnabled(enabled)
+    Config.Enabled = enabled
+
+    if Config.Enabled then
+        ToggleBtn.BackgroundColor3 = Color3.fromRGB(40, 160, 60)
+        ToggleBtn.Text = "AUTO HONGMENG: ON"
+        StatusLabel.Text = "สถานะ: กำลังตรวจจับค่ายกลและยิง Remote..."
+    else
+        ToggleBtn.BackgroundColor3 = Color3.fromRGB(160, 40, 40)
+        ToggleBtn.Text = "AUTO HONGMENG: OFF"
+        StatusLabel.Text = "สถานะ: ปิดการทำงาน"
+    end
+end
+
+ToggleBtn.Activated:Connect(function()
+    setEnabled(not Config.Enabled)
+end)
+
+SearchBtn.Activated:Connect(function()
+    setEnabled(true)
+
+end)
+
+AutoWarpBtn.MouseButton1Click:Connect(function()
+    Config.AutoTeleportWildQi = not Config.AutoTeleportWildQi
+    AutoWarpBtn.BackgroundColor3 = Config.AutoTeleportWildQi and Color3.fromRGB(40, 160, 60) or Color3.fromRGB(160, 40, 40)
+    AutoWarpBtn.Text = Config.AutoTeleportWildQi and "AUTO BEST: ON" or "AUTO BEST: OFF"
+end)
+
+-- --------------------------------------------------------
+-- REFACTORED & FIXED REMOTE-BASED AUTO ENGINE
+-- --------------------------------------------------------
+local rules = require(ReplicatedStorage.Murim.Shared.Hongmeng)
+local opposite = {U = "D", D = "U", L = "R", R = "L"}
+local wardWindowStart = rules.Trib.window[1]
+local wardWindowEnd = rules.Trib.window[2]
+local wardTargetOffset = (wardWindowStart + wardWindowEnd) / 2
+local phase, weave, seq
+local bolts = {}
+local pos, sentPos = 1, 0
+local lastSeal, lastWard = -math.huge, -math.huge
+local inWindow = false
+local lastWarpTime = 0
+local wardStatus = "รอสัญญาณ bolt"
+local wardSent, wardMissed = 0, 0
+
+local function reset(nextPhase)
+    phase, weave, seq = nextPhase, nil, nil
+    table.clear(bolts)
+    inWindow = false
+    lastSeal, lastWard = -math.huge, -math.huge
+    wardSent, wardMissed = 0, 0
+    wardStatus = "รอสัญญาณ bolt"
+end
+
+local function receive(msg)
+    if type(msg) ~= "table" then return end
+    local op = msg.op
+    if op == "start" then ScreenGui:SetAttribute("TrialActive", true) end
+    if op == "result" or op == "seat" then ScreenGui:SetAttribute("TrialActive", false) end
+    if op == "start" then
+        reset("gather")
+    elseif op == "result" or op == "seat" then
+        reset(nil)
+    elseif op == "phase" and msg.phase ~= phase then
+        reset(msg.phase)
+    elseif op == "weave" then
+        weave, phase = msg, "weave"
+    elseif op == "weaveEnd" then
+        weave = nil
+    elseif op == "seq" then
+        seq, phase, pos, sentPos = msg, "hold", 1, 0
+    elseif op == "seqKey" and seq and type(msg.pos) == "number" then
+        pos = math.max(pos, msg.pos + 1)
+    elseif op == "seqDone" then
+        seq = nil
+    elseif op == "warded" then
+        wardStatus = "เกมยืนยันป้องกันสำเร็จ"
+    elseif op == "unwarded" then
+        wardMissed = wardMissed + 1
+        wardStatus = "เกมแจ้งว่าป้องกันพลาด"
+    elseif op == "trib" then
+        phase = "trib"
+    elseif op == "bolt" and type(msg.land) == "number" then
+        phase = "trib"
+        table.insert(bolts, msg.land)
+        table.sort(bolts)
+    end
+end
+
+local boundRemote
+local function bindRemote()
+    HongmengRemote = ReplicatedStorage.Murim.Remotes:FindFirstChild("Hongmeng")
+    if HongmengRemote == boundRemote then return end
+    reset(nil)
+    ScreenGui:SetAttribute("TrialActive", false)
+    boundRemote = HongmengRemote
+    if boundRemote and boundRemote:IsA("RemoteEvent") then
+        table.insert(Connections, boundRemote.OnClientEvent:Connect(receive))
+    end
+end
+bindRemote()
+table.insert(Connections, ReplicatedStorage.Murim.Remotes.ChildAdded:Connect(bindRemote))
+table.insert(Connections, ReplicatedStorage.Murim.Remotes.ChildRemoved:Connect(bindRemote))
+
+local function gateDistance(angle)
+    return math.abs((angle + 180) % 360 - 180)
+end
+
+table.insert(Connections, RunService.Heartbeat:Connect(function()
+    local now = tick()
+
+    -- 1. Auto Teleport หาจุด Wild Qi
+    if Config.AutoTeleportWildQi and (now - lastWarpTime >= 1.5) then
+        lastWarpTime = now
+        local qiList = scanAllWildQi()
+        if qiList[1] and qiList[1].Target then
+            local char = LocalPlayer.Character
+            if char and char:FindFirstChild("HumanoidRootPart") then
+                local targetCFrame = qiList[1].Target:IsA("Model") and qiList[1].Target:GetPivot() or qiList[1].Target.CFrame
+                char.HumanoidRootPart.CFrame = targetCFrame + Vector3.new(0, 3, 0)
+            end
+        end
+    end
+
+    if not Config.Enabled then return end
+    if not boundRemote or not boundRemote:IsA("RemoteEvent") then
+        StatusLabel.Text = "รอ Remote Hongmeng"
+        return
+    end
+    local t = Workspace:GetServerTimeNow()
+    StatusLabel.Text = phase and ("เฟส " .. phase) or "รอข้อมูลพิธีจากเกม"
+    if phase == "weave" and weave and t < weave.ends then
+        local ring = weave.rings[weave.active]
+        if not ring then return end
+        local chaos = weave.chaos
+        local runeAngle = ring.base + ring.w * (t - ring.tBase) + ring.key
+        local darkAngle = chaos.base + chaos.w * (t - chaos.tBase)
+        local ready = gateDistance(runeAngle) <= 4 and gateDistance(darkAngle) > chaos.width / 2
+        if ready and not inWindow and t - lastSeal >= 0.22 then
+            boundRemote:FireServer({op = "seal", t = t})
+            lastSeal, inWindow = t, true
+        elseif not ready then
+            inWindow = false
+        end
+    elseif phase == "hold" and seq and t < seq.deadline and pos ~= sentPos then
+        local key = seq.keys[pos]
+        if opposite[key] then
+            local dir = seq.inv[pos] and opposite[key] or key
+            boundRemote:FireServer({op = "key", dir = dir})
+            sentPos = pos
+        end
+    elseif phase == "trib" then
+        -- Interpret Trib.window as offsets from the announced landing time.
+        while bolts[1] and t > bolts[1] + wardWindowEnd do
+            table.remove(bolts, 1)
+            wardStatus = "พลาดเวลาส่ง · ข้อมูลมาช้าหรือคูลดาวน์"
+        end
+        if bolts[1] then
+            local remaining = bolts[1] + wardTargetOffset - t
+            if remaining <= 0 then
+                local cooldown = rules.Trib.wardCooldown
+                if t - lastWard >= cooldown then
+                    boundRemote:FireServer({op = "ward", t = t})
+                    lastWard = t
+                    wardSent = wardSent + 1
+                    table.remove(bolts, 1)
+                    wardStatus = "ส่ง ward แล้ว · รอผลจากเกม"
+                else
+                    wardStatus = "รอคูลดาวน์"
+                end
+            else
+                wardStatus = string.format("ส่ง ward ใน %.2f วินาที", remaining)
+            end
+        end
+        StatusLabel.Text = string.format("Trib · ส่ง %d · พลาด %d\n%s", wardSent, wardMissed, wardStatus)
+    end
+end))
+
+refreshQiButtons()
+print("[SUCCESS] Fixed Hongmeng Auto Hub Loaded Successfully!")
+]==], "Hongmeng-WildQi")
+            local ok, failure = false, reason
+            if program then ok, failure = pcall(program) end
+            loading = false
+            if not ok and button.Parent then button.Text = "โหลดไม่สำเร็จ: " .. tostring(failure) end
+        end)
+    end)
+    screenGui.Destroying:Connect(function()
+        local gui = player.PlayerGui:FindFirstChild("MurimMultiWarpHub")
+        if gui then gui:Destroy() end
+    end)
 end
 
 local npcPage = makePage("Monsters", 1, "มอนสเตอร์")
@@ -969,13 +1765,15 @@ local function isAlive(npc)
 end
 
 local function getHighestLevelTarget()
+    if chooseBossTarget then
+        local cf, alive, npc = chooseBossTarget()
+        if cf then return cf, alive, npc end
+    end
     local now = os.clock()
     if now < targetScanAt then
         if cachedTarget and isAlive(cachedTarget) then
             local part = cachedTarget:FindFirstChild("HumanoidRootPart") or cachedTarget.PrimaryPart or cachedTarget:FindFirstChild("Torso")
             return part.CFrame, true, cachedTarget
-        elseif not cachedTarget then
-            return nil, false, nil
         end
     end
     targetScanAt = now + TARGET_SCAN_INTERVAL
@@ -1013,7 +1811,17 @@ local function getHighestLevelTarget()
 	if bestCFrame then
 		return bestCFrame, true, bestNPCObj
 	end
-	return nil, false, nil
+    local fallbackName, fallbackLevel
+    for name in pairs(savedNPCPositions) do
+        if selectedNPCNames[name] then
+            local level = knownNPCNames[name] or 0
+            if not fallbackName or level > fallbackLevel or (level == fallbackLevel and name < fallbackName) then
+                fallbackName, fallbackLevel = name, level
+            end
+        end
+    end
+    if fallbackName then return savedNPCPositions[fallbackName], false, nil end
+    return nil, false, nil
 end
 
 local function refreshTPButtons()
@@ -1082,6 +1890,7 @@ local function autoSaveNPCPosition(npc)
 end
 
 local function stopAll()
+    bossFarm.active = nil
 	isFarming = false
     currentTarget = nil
     cachedTarget = nil
@@ -1152,7 +1961,7 @@ local function startFarming()
 
 			if hrp then
                 local targetCF, aliveStatus, npcObj = getHighestLevelTarget()
-                local favoriteReady = aliveStatus and npcObj and favoriteNPCNames[npcObj.Name]
+                local favoriteReady = bossFarm.active ~= nil or (aliveStatus and npcObj and favoriteNPCNames[npcObj.Name])
                 local dropsFolder = Workspace:FindFirstChild("Murim_Drops")
 				local validDrop = nil
 				
@@ -1202,10 +2011,13 @@ local function startFarming()
 						local signedHeight = farmPositionMode == "above" and math.abs(heightUnder) or heightUnder
 						local farmRotation = farmPositionMode == "above" and CFrame.Angles(math.rad(-90), 0, 0) or lyingRotation
 						hrp.CFrame = targetCF * CFrame.new(0, signedHeight, 0) * farmRotation
-					else
-						currentTarget = nil
-					end
-					task.wait(0.03)
+                    else
+                        currentTarget = nil
+                        if targetCF and (hrp.Position - targetCF.Position).Magnitude > 25 then
+                            hrp.CFrame = targetCF + Vector3.new(0, 4, 0)
+                        end
+                    end
+                    task.wait(0.03)
 				end
 			else
 				task.wait(0.5)
@@ -1230,6 +2042,174 @@ local function startFarming()
 			task.wait(0.1)
 		end
 	end)
+end
+
+-- Boss priority shares the normal farming and attack loops.
+do
+    local page = makePage("Bosses", 7, "บอส")
+    local toggle = Instance.new("TextButton")
+    toggle.Size = UDim2.new(1, -16, 0, 34)
+    toggle.Position = UDim2.fromOffset(8, 8)
+    toggle.Text = "Auto Boss: ปิด"
+    toggle.BackgroundColor3 = Color3.fromRGB(54, 65, 82)
+    toggle.TextColor3 = Color3.new(1, 1, 1)
+    toggle.Parent = page
+    local status = Instance.new("TextLabel")
+    status.Size = UDim2.new(1, -16, 0, 38)
+    status.Position = UDim2.fromOffset(8, 44)
+    status.BackgroundTransparency = 1
+    status.TextColor3 = Color3.new(1, 1, 1)
+    status.TextWrapped = true
+    status.Text = "เลือกบอส แล้วเปิด Auto Boss และกดเริ่มฟาร์ม"
+    status.Parent = page
+    local list = Instance.new("ScrollingFrame")
+    list.Size = UDim2.new(1, -16, 1, -90)
+    list.Position = UDim2.fromOffset(8, 84)
+    list.BackgroundTransparency = 1
+    list.ScrollBarThickness = 4
+    list.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    list.CanvasSize = UDim2.new()
+    list.Parent = page
+    local layout = Instance.new("UIListLayout")
+    layout.Padding = UDim.new(0, 4)
+    layout.SortOrder = Enum.SortOrder.Name
+    layout.Parent = list
+    local rows = {}
+
+    local function anchorFrame(anchor)
+        if not anchor then return nil end
+        if anchor:IsA("BasePart") then return anchor.CFrame end
+        if anchor:IsA("Model") then return anchor:GetPivot() end
+        if anchor:IsA("CFrameValue") then return anchor.Value end
+        if anchor:IsA("Vector3Value") then return CFrame.new(anchor.Value) end
+        if anchor:IsA("ObjectValue") then return anchorFrame(anchor.Value) end
+    end
+
+    local function findBoss(key, data)
+        local folder = Workspace:FindFirstChild("Murim_NPCs")
+        if not folder then return nil end
+        for _, npc in ipairs(folder:GetChildren()) do
+            if (npc.Name == key or npc.Name == data.name) and isAlive(npc) then
+                return npc
+            end
+        end
+    end
+
+    local function finishBoss(data)
+        data.retryAt = os.clock() + 30
+        bossFarm.active = nil
+        cachedTarget, targetScanAt = nil, 0
+    end
+
+    chooseBossTarget = function()
+        if not bossFarm.enabled then return nil end
+        local now = os.clock()
+        local active = bossFarm.active
+        if not active then
+            local keys = {}
+            for key, selected in pairs(bossFarm.selected) do
+                if selected then table.insert(keys, key) end
+            end
+            table.sort(keys)
+            for _, key in ipairs(keys) do
+                local data = bossFarm.cache[key]
+                if data and now >= (data.retryAt or 0) and (data.live or data.probe) then
+                    active = {key = key, started = now, npc = data.live}
+                    bossFarm.active = active
+                    data.probe = false
+                    break
+                end
+            end
+        end
+        if not active then return nil end
+        local data = bossFarm.cache[active.key]
+        if not bossFarm.selected[active.key] then
+            finishBoss(data)
+            return nil
+        end
+        local npc = findBoss(active.key, data)
+        if npc then
+            active.npc = npc
+            local part = npc:FindFirstChild("HumanoidRootPart") or npc.PrimaryPart or npc:FindFirstChild("Torso")
+            status.Text = "กำลังตีบอส " .. data.name
+            return part.CFrame, true, npc
+        end
+        if active.npc or now - active.started > 10 then
+            finishBoss(data)
+            status.Text = "กลับไปฟาร์มมอนสเตอร์ที่เลือก"
+            return nil
+        end
+        if data.cf then
+            status.Text = "กำลังตรวจจุดเกิด " .. data.name
+            return data.cf, false, nil
+        end
+        finishBoss(data)
+        return nil
+    end
+
+    toggle.Activated:Connect(function()
+        bossFarm.enabled = not bossFarm.enabled
+        bossFarm.active = nil
+        cachedTarget, targetScanAt = nil, 0
+        toggle.Text = bossFarm.enabled and "Auto Boss: เปิด" or "Auto Boss: ปิด"
+    end)
+
+    task.spawn(function()
+        while not destroyed do
+            local folder = Workspace:FindFirstChild("Murim_BossTimers")
+            local present = {}
+            if folder then
+                for _, item in ipairs(folder:GetChildren()) do
+                    local key = item.Name
+                    present[key] = true
+                    local data = bossFarm.cache[key] or {name = key}
+                    bossFarm.cache[key] = data
+                    local anchor = item:FindFirstChild("Anchor")
+                    data.cf = anchorFrame(anchor) or data.cf
+                    local timer = anchor and anchor:FindFirstChild("BossTimer")
+                    local nameLabel = timer and timer:FindFirstChild("TextLabel")
+                    if nameLabel and nameLabel:IsA("TextLabel") and nameLabel.Text ~= "" then
+                        data.name = nameLabel.Text
+                    end
+                    data.timeText = "รอเกิด"
+                    if timer then
+                        for _, child in ipairs(timer:GetChildren()) do
+                            if child ~= nameLabel and child:IsA("TextLabel") then
+                                data.timeText = child.Text
+                            elseif child:IsA("ValueBase") and type(child.Value) == "number" then
+                                data.timeText = tostring(child.Value)
+                                if child.Value <= 0 then data.probe = true end
+                            end
+                        end
+                    end
+                end
+            end
+            for key, data in pairs(bossFarm.cache) do
+                -- Disappearance schedules one location check; streaming can also remove timers.
+                if data.present and not present[key] and data.cf then data.probe = true end
+                data.present = present[key] == true
+                data.live = findBoss(key, data)
+                local row = rows[key]
+                if not row then
+                    row = Instance.new("TextButton")
+                    row.Name = key
+                    row.Size = UDim2.new(1, -8, 0, 44)
+                    row.TextWrapped = true
+                    row.TextColor3 = Color3.new(1, 1, 1)
+                    row.Parent = list
+                    rows[key] = row
+                    row.Activated:Connect(function()
+                        bossFarm.selected[key] = not bossFarm.selected[key]
+                        if bossFarm.selected[key] and not data.present and data.cf then data.probe = true end
+                    end)
+                end
+                row.BackgroundColor3 = bossFarm.selected[key] and Color3.fromRGB(45, 110, 55) or Color3.fromRGB(35, 35, 45)
+                row.Text = (bossFarm.selected[key] and "[✓] " or "[ ] ") .. data.name .. "\n"
+                    .. (data.live and "พบตัวบอส" or (data.present and data.timeText or "จำพิกัดแล้ว · รอตรวจ"))
+            end
+            task.wait(1)
+        end
+    end)
 end
 
 toggleHitboxBtn.MouseButton1Click:Connect(function()
@@ -1585,6 +2565,9 @@ local alchemyRequestVersion = 0
 local refreshAlchemy
 local breakthroughEnabled, breakthroughToken = false, 0
 local qiAuto, tribAuto = false, false
+local minorAuto, minorPending = false, false
+local minorVersion = 0
+local refreshMinor
 local cultivationPhase
 local cultRemote = need(remotes, "Cultivation")
 local refreshBreakthrough
@@ -1681,6 +2664,9 @@ local function stopConnections()
     closed, enabled, forgeEnabled = true, false, false
     breakthroughEnabled = false
     qiAuto, tribAuto = false, false
+    minorAuto = false
+    minorVersion += 1
+    if refreshMinor then refreshMinor() end
     breakthroughToken += 1
     alchemyAuto, alchemyHit = false, false
     beatVersion += 1
@@ -2118,6 +3104,9 @@ local function stopWorkshop()
     enabled, forgeEnabled, alchemyAuto, alchemyHit = false, false, false, false
     breakthroughEnabled = false
     qiAuto, tribAuto = false, false
+    minorAuto = false
+    minorVersion += 1
+    if refreshMinor then refreshMinor() end
     breakthroughToken += 1
     if refreshBreakthrough then refreshBreakthrough() end
     alchemyRequestVersion += 1
@@ -2168,7 +3157,7 @@ local tribButton = pageButton(breakthroughPage, "Heavenly Tribulation: ปิด
 local cultStatus = pageLabel(breakthroughPage, "รอข้อมูลรอบใหม่จากเกม", 201, 45)
 local cultResult = pageLabel(breakthroughPage, "ผลล่าสุด: -", 250, 44)
 local cultCounter = pageLabel(breakthroughPage, "Click: 0 | Ward: 0 | Tap: 0", 300, 30, 13)
-pageLabel(breakthroughPage, "Qi: รอจังหวะและข้ามแดง • Tribulation: ตามสัญญาณ\nไม่เริ่มรอบ ไม่ใช้วัตถุดิบ และไม่รีเซ็ตเลเวล", 339, 48, 12)
+pageLabel(breakthroughPage, "Qi: รอจังหวะและข้ามแดง • Tribulation: ตามสัญญาณ\nเปิด Auto ทะลวงย่อยด้านล่างเพื่อเริ่มเมื่อหลอดเต็ม", 339, 48, 12)
 local circulation, tribulation
 local clickCount, wardCount, tapCount = 0, 0, 0
 local wardReadyAt = 0
@@ -2338,6 +3327,85 @@ connect(RunService.Heartbeat, function()
         end
     end
 end)
+-- Advance uses the same context callback and eligibility checks as CultivationV2.
+do
+    local client = need(Players.LocalPlayer:WaitForChild("PlayerScripts"), "MurimClient")
+    local state = require(need(client, "State"))
+    local cultivationRules = require(need(need(RS.Murim, "Shared"), "Cultivation"))
+    local cultivationUI = require(need(need(client, "UI"), "CultivationV2"))
+    local minorButton = pageButton(breakthroughPage, "Auto ทะลวงย่อย: ปิด", 400, 42)
+    local minorStatus = pageLabel(breakthroughPage, "รอเปิด Auto ทะลวงย่อย", 448, 55, 12)
+    local nextAttempt = 0
+    local acceptedLevel
+    refreshMinor = function()
+        minorButton.Text = minorAuto and "Auto ทะลวงย่อย: เปิด" or "Auto ทะลวงย่อย: ปิด"
+    end
+    connect(minorButton.Activated, function()
+        minorAuto = not minorAuto
+        minorVersion += 1
+        if minorAuto then qiAuto = true end
+        refreshMinor()
+        refreshBreakthrough()
+        minorStatus.Text = minorAuto and "รอหลอดเต็มที่ขั้นย่อย" or "ปิด Auto ทะลวงย่อย"
+    end)
+    task.spawn(function()
+        while not closed do
+            task.wait(1)
+            if not minorAuto or minorPending or os.clock() < nextAttempt then continue end
+            if host.isBusy and host.isBusy() then continue end
+            local profile = state.Profile
+            if type(profile) ~= "table" then continue end
+            local level = profile.level or 1
+            if acceptedLevel and acceptedLevel ~= level then acceptedLevel = nil end
+            if cultivationRules.gate(level) ~= "stage" then
+                minorStatus.Text = "รอขั้นย่อย"
+                continue
+            end
+            if not profile.xpNext or (profile.xp or 0) < profile.xpNext then
+                minorStatus.Text = "รอหลอดเต็ม"
+                continue
+            end
+            if type(profile.deviation) == "number" and profile.deviation > workspace:GetServerTimeNow() then
+                minorStatus.Text = "รออาการลมปราณแปรปรวนหมด"
+                continue
+            end
+            if acceptedLevel == level then
+                minorStatus.Text = "รอผลทะลวงย่อยจากเกม"
+                continue
+            end
+            local ctx = cultivationUI._S and cultivationUI._S.ctx
+            local gm = ctx and ctx.gm
+            if not gm or type(gm.gateCtx) ~= "function" then
+                minorStatus.Text = "เปิดหน้า Cultivation ในเกมหนึ่งครั้ง"
+                continue
+            end
+            local contextOK, _, gateContext = pcall(gm.gateCtx)
+            if not contextOK or not gateContext or type(gateContext.cultReq) ~= "function" then
+                minorStatus.Text = "รอระบบทะลวงย่อยพร้อม"
+                continue
+            end
+            local version = minorVersion
+            minorPending = true
+            local ok, accepted, reason = pcall(gateContext.cultReq, "advance", nil)
+            minorPending = false
+            nextAttempt = os.clock() + 5
+            if ok and accepted then acceptedLevel = level end
+            if closed or version ~= minorVersion then continue end
+            if ok and accepted then
+                minorStatus.Text = "เริ่มทะลวงย่อยแล้ว"
+            else
+                minorStatus.Text = "รอลองใหม่: " .. tostring(ok and reason or accepted)
+            end
+        end
+    end)
+    connect(cultRemote.OnClientEvent, function(data)
+        if type(data) == "table" and (data.op == "CircEnd" or (data.op == "Meditate" and data.on == false)) then
+            acceptedLevel = nil
+            nextAttempt = os.clock() + 5
+        end
+    end)
+end
+
 refreshBreakthrough()
 selectTab("breakthrough")
 
@@ -2356,13 +3424,15 @@ local function mountPage(name, index, caption, contents, height)
 end
 mountPage("Alchemy", 3, "ปรุงยา", alchemyPage, 390)
 mountPage("Forge", 4, "Forge", forgePage, 400)
-mountPage("Cultivation", 5, "ทะลวงขั้น", breakthroughPage, 400)
+mountPage("Cultivation", 5, "ทะลวงขั้น", breakthroughPage, 510)
 panel.Visible = false
 restore.Visible = false
 host.stopWorkshop = stopWorkshop
 host.isBusy = function()
     if closed then return false end
-    return cultivationPhase ~= nil or alchemyAuto or alchemyBusy or alchemyPending
+    local hongmeng = playerGui:FindFirstChild("MurimMultiWarpHub")
+    if hongmeng and hongmeng:GetAttribute("TrialActive") then return true end
+    return minorPending or cultivationPhase ~= nil or alchemyAuto or alchemyBusy or alchemyPending
         or alchemyActive or generalMinigameActive or forgeEnabled or forgeBusy
         or awaitingGame or gameActive or gameIsVisible()
 end
@@ -2376,7 +3446,7 @@ report("เมนูหลักเปิดแล้ว • กำลังโ�
 task.spawn(function()
     local ok, reason = xpcall(function() mountWorkshop(hub) end, function(e) return tostring(e) end)
     if ok then
-        report("พร้อมใช้งาน • 6 แท็บ", false)
+        report("พร้อมใช้งาน • 8 แท็บ", false)
         task.delay(3, finishNotice)
     else
         report("โหลดส่วนมินิเกมไม่สำเร็จ: " .. tostring(reason), true)
