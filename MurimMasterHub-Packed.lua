@@ -628,8 +628,10 @@ local pages, tabs = {}, {}
 local function showPage(index)
     for i, page in pairs(pages) do
         page.Visible = i == index
-        tabs[i].BackgroundColor3 = i == index and Color3.fromRGB(72, 86, 147) or Color3.fromRGB(30, 37, 51)
-        tabs[i].TextColor3 = i == index and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(165, 179, 205)
+        if tabs[i] then
+            tabs[i].BackgroundColor3 = i == index and Color3.fromRGB(72, 86, 147) or Color3.fromRGB(30, 37, 51)
+            tabs[i].TextColor3 = i == index and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(165, 179, 205)
+        end
     end
 end
 local function makePage(name, index, caption)
@@ -644,11 +646,11 @@ local function makePage(name, index, caption)
     pages[index] = page
     local tab = Instance.new("TextButton")
     tab.Name = name .. "Tab"
-    tab.Size = UDim2.new(1 / 3, -4, 0, 38)
-    tab.Position = UDim2.new(((index - 1) % 3) / 3, ((index - 1) % 3) * 2, 0, math.floor((index - 1) / 3) * 44)
+    tab.Size = UDim2.new(1 / 4, -4, 0, 38)
+    tab.Position = UDim2.new(((index - 1) % 4) / 4, ((index - 1) % 4) * 2, 0, math.floor((index - 1) / 4) * 44)
     tab.BorderSizePixel = 0
     tab.Font = Enum.Font.SourceSansBold
-    tab.TextSize = 15
+    tab.TextSize = 13
     tab.Text = caption
     tab.TextWrapped = true
     tab.Parent = tabsBar
@@ -673,7 +675,630 @@ for _, list in ipairs({scrollFrame, tpScrollFrame}) do
 
 end
 
-local settingsPage = makePage("Settings", 6, "ตั้งค่า")
+--------------------------------------------------------------------------------
+-- ☯️ Hongmeng & Wild Qi Page (Index 6)
+--------------------------------------------------------------------------------
+local HongmengConfig = {
+    Enabled = false,
+    AutoTeleportWildQi = false,
+    DiscordWebhook = "",
+    DiscordNotify = true,
+}
+hubUI.HongmengConfig = HongmengConfig
+
+local GradeColors = {
+    [99] = Color3.fromRGB(255, 60, 100), -- WildQi Special
+    [7]  = Color3.fromRGB(180, 40, 40),   -- Void
+    [6]  = Color3.fromRGB(220, 170, 40),  -- Mist/Fog
+    [5]  = Color3.fromRGB(130, 50, 200),  -- Thunder
+    [0]  = Color3.fromRGB(60, 100, 160)   -- General
+}
+
+local GradeNames = {
+    [99] = "★ WildQi (Special Target)",
+    [7]  = "Grade 7 (Void)",
+    [6]  = "Grade 6 (Mist/Fog)",
+    [5]  = "Grade 5 (Thunder)",
+}
+
+local hongmengPage = makePage("Hongmeng", 6, "Hongmeng")
+newHeading(hongmengPage, "พิธี Hongmeng & จุดเกิด Wild Qi")
+
+local hongmengBody = Instance.new("Frame")
+hongmengBody.Name = "HongmengBody"
+hongmengBody.Position = UDim2.new(0, 0, 0, 44)
+hongmengBody.Size = UDim2.new(1, 0, 1, -44)
+hongmengBody.BackgroundTransparency = 1
+hongmengBody.Parent = hongmengPage
+
+-- Sub-tabs Bar
+local hTabBar = Instance.new("Frame")
+hTabBar.Name = "HTabBar"
+hTabBar.Size = UDim2.new(1, -24, 0, 30)
+hTabBar.Position = UDim2.new(0, 12, 0, 0)
+hTabBar.BackgroundTransparency = 1
+hTabBar.Parent = hongmengBody
+
+local autoTabBtn = Instance.new("TextButton")
+autoTabBtn.Name = "AutoTabBtn"
+autoTabBtn.Size = UDim2.new(0.48, 0, 1, 0)
+autoTabBtn.Position = UDim2.new(0, 0, 0, 0)
+autoTabBtn.BackgroundColor3 = Color3.fromRGB(72, 86, 147)
+autoTabBtn.Text = "Auto Hongmeng"
+autoTabBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+autoTabBtn.TextSize = 13
+autoTabBtn.Font = Enum.Font.SourceSansBold
+autoTabBtn.Parent = hTabBar
+Instance.new("UICorner", autoTabBtn).CornerRadius = UDim.new(0, 6)
+
+local wildQiTabBtn = Instance.new("TextButton")
+wildQiTabBtn.Name = "WildQiTabBtn"
+wildQiTabBtn.Size = UDim2.new(0.48, 0, 1, 0)
+wildQiTabBtn.Position = UDim2.new(0.52, 0, 0, 0)
+wildQiTabBtn.BackgroundColor3 = Color3.fromRGB(35, 42, 58)
+wildQiTabBtn.Text = "Wild Qi List"
+wildQiTabBtn.TextColor3 = Color3.fromRGB(165, 179, 205)
+wildQiTabBtn.TextSize = 13
+wildQiTabBtn.Font = Enum.Font.SourceSansBold
+wildQiTabBtn.Parent = hTabBar
+Instance.new("UICorner", wildQiTabBtn).CornerRadius = UDim.new(0, 6)
+
+-- Sub-pages
+local autoPage = Instance.new("Frame")
+autoPage.Name = "AutoPage"
+autoPage.Size = UDim2.new(1, -24, 1, -38)
+autoPage.Position = UDim2.new(0, 12, 0, 36)
+autoPage.BackgroundTransparency = 1
+autoPage.Visible = true
+autoPage.Parent = hongmengBody
+
+local wildQiPage = Instance.new("Frame")
+wildQiPage.Name = "WildQiPage"
+wildQiPage.Size = UDim2.new(1, -24, 1, -38)
+wildQiPage.Position = UDim2.new(0, 12, 0, 36)
+wildQiPage.BackgroundTransparency = 1
+wildQiPage.Visible = false
+wildQiPage.Parent = hongmengBody
+
+-- 1. Auto Page Controls
+local toggleHBtn = Instance.new("TextButton")
+toggleHBtn.Name = "ToggleHBtn"
+toggleHBtn.Size = UDim2.new(1, 0, 0, 38)
+toggleHBtn.Position = UDim2.new(0, 0, 0, 4)
+toggleHBtn.BackgroundColor3 = Color3.fromRGB(160, 40, 40)
+toggleHBtn.Text = "AUTO HONGMENG: OFF"
+toggleHBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+toggleHBtn.TextSize = 13
+toggleHBtn.Font = Enum.Font.SourceSansBold
+toggleHBtn.Parent = autoPage
+Instance.new("UICorner", toggleHBtn).CornerRadius = UDim.new(0, 6)
+
+local statusHLabel = Instance.new("TextLabel")
+statusHLabel.Name = "StatusHLabel"
+statusHLabel.Size = UDim2.new(1, 0, 0, 56)
+statusHLabel.Position = UDim2.new(0, 0, 0, 48)
+statusHLabel.BackgroundTransparency = 1
+statusHLabel.Text = "สถานะ: ปิดการทำงาน\n(ระบบตรวจสอบเงื่อนไขและยิง Remote อัตโนมัติ)"
+statusHLabel.TextColor3 = Color3.fromRGB(170, 180, 205)
+statusHLabel.TextSize = 12
+statusHLabel.Font = Enum.Font.SourceSans
+statusHLabel.TextWrapped = true
+statusHLabel.Parent = autoPage
+
+local searchHBtn = Instance.new("TextButton")
+searchHBtn.Name = "SearchHBtn"
+searchHBtn.Size = UDim2.new(1, 0, 0, 34)
+searchHBtn.Position = UDim2.new(0, 0, 0, 110)
+searchHBtn.BackgroundColor3 = Color3.fromRGB(45, 100, 160)
+searchHBtn.Text = "เริ่ม Auto H จากข้อมูลพิธี"
+searchHBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+searchHBtn.TextSize = 13
+searchHBtn.Font = Enum.Font.SourceSansBold
+searchHBtn.Parent = autoPage
+Instance.new("UICorner", searchHBtn).CornerRadius = UDim.new(0, 6)
+
+local guideBox = Instance.new("Frame")
+guideBox.Name = "GuideBox"
+guideBox.Size = UDim2.new(1, 0, 0, 110)
+guideBox.Position = UDim2.new(0, 0, 0, 154)
+guideBox.BackgroundColor3 = Color3.fromRGB(18, 23, 33)
+guideBox.BorderSizePixel = 0
+guideBox.Parent = autoPage
+Instance.new("UICorner", guideBox).CornerRadius = UDim.new(0, 6)
+
+local guideLabel = Instance.new("TextLabel")
+guideLabel.Size = UDim2.new(1, -16, 1, -12)
+guideLabel.Position = UDim2.new(0, 8, 0, 6)
+guideLabel.BackgroundTransparency = 1
+guideLabel.Text = "• ระบบตรวจจับ Remote Hongmeng และถอดรหัสอัตโนมัติ\n• เฟส Weave: หมุนผนึกแก้ค่ายกลตามจังหวะ\n• เฟส Hold: สลับทิศทางลูกศรและกดย้อนกลับทันที\n• เฟส Trib: คำนวณเวลาและกด Ward สายฟ้าอัตโนมัติ"
+guideLabel.TextColor3 = Color3.fromRGB(145, 160, 185)
+guideLabel.TextSize = 11
+guideLabel.Font = Enum.Font.SourceSans
+guideLabel.TextWrapped = true
+guideLabel.TextXAlignment = Enum.TextXAlignment.Left
+guideLabel.TextYAlignment = Enum.TextYAlignment.Top
+guideLabel.Parent = guideBox
+
+-- 2. Wild Qi Page Controls
+local refreshQiBtn = Instance.new("TextButton")
+refreshQiBtn.Name = "RefreshQiBtn"
+refreshQiBtn.Size = UDim2.new(0.48, -4, 0, 30)
+refreshQiBtn.Position = UDim2.new(0, 0, 0, 4)
+refreshQiBtn.BackgroundColor3 = Color3.fromRGB(40, 110, 180)
+refreshQiBtn.Text = "🔄 Refresh List"
+refreshQiBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+refreshQiBtn.TextSize = 12
+refreshQiBtn.Font = Enum.Font.SourceSansBold
+refreshQiBtn.Parent = wildQiPage
+Instance.new("UICorner", refreshQiBtn).CornerRadius = UDim.new(0, 4)
+
+local autoWarpQiBtn = Instance.new("TextButton")
+autoWarpQiBtn.Name = "AutoWarpQiBtn"
+autoWarpQiBtn.Size = UDim2.new(0.48, -4, 0, 30)
+autoWarpQiBtn.Position = UDim2.new(0.52, 4, 0, 4)
+autoWarpQiBtn.BackgroundColor3 = Color3.fromRGB(160, 40, 40)
+autoWarpQiBtn.Text = "AUTO BEST: OFF"
+autoWarpQiBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+autoWarpQiBtn.TextSize = 12
+autoWarpQiBtn.Font = Enum.Font.SourceSansBold
+autoWarpQiBtn.Parent = wildQiPage
+Instance.new("UICorner", autoWarpQiBtn).CornerRadius = UDim.new(0, 4)
+
+local webhookBox = Instance.new("TextBox")
+webhookBox.Name = "DiscordWebhook"
+webhookBox.Size = UDim2.new(1, 0, 0, 28)
+webhookBox.Position = UDim2.new(0, 0, 0, 40)
+webhookBox.BackgroundColor3 = Color3.fromRGB(18, 23, 33)
+webhookBox.TextColor3 = Color3.fromRGB(240, 240, 240)
+webhookBox.PlaceholderText = "Discord Webhook URL · กด Enter"
+webhookBox.ClearTextOnFocus = false
+webhookBox.MultiLine = false
+webhookBox.TextSize = 11
+webhookBox.Font = Enum.Font.SourceSans
+webhookBox.TextXAlignment = Enum.TextXAlignment.Left
+webhookBox.Parent = wildQiPage
+Instance.new("UICorner", webhookBox).CornerRadius = UDim.new(0, 4)
+
+local webhookStatus = Instance.new("TextLabel")
+webhookStatus.Size = UDim2.new(1, 0, 0, 20)
+webhookStatus.Position = UDim2.new(0, 0, 0, 72)
+webhookStatus.BackgroundTransparency = 1
+webhookStatus.TextColor3 = Color3.fromRGB(170, 180, 200)
+webhookStatus.TextSize = 11
+webhookStatus.Font = Enum.Font.SourceSans
+webhookStatus.Text = "ใส่ Webhook เพื่อแจ้งเกรด 11 / 12 / 13"
+webhookStatus.TextXAlignment = Enum.TextXAlignment.Left
+webhookStatus.Parent = wildQiPage
+
+local qiScrollList = Instance.new("ScrollingFrame")
+qiScrollList.Name = "ScrollList"
+qiScrollList.Size = UDim2.new(1, 0, 1, -100)
+qiScrollList.Position = UDim2.new(0, 0, 0, 96)
+qiScrollList.BackgroundColor3 = Color3.fromRGB(18, 23, 33)
+qiScrollList.BorderSizePixel = 0
+qiScrollList.ScrollBarThickness = 4
+qiScrollList.CanvasSize = UDim2.new(0, 0, 0, 0)
+qiScrollList.Parent = wildQiPage
+Instance.new("UICorner", qiScrollList).CornerRadius = UDim.new(0, 6)
+
+local qiListLayout = Instance.new("UIListLayout")
+qiListLayout.Parent = qiScrollList
+qiListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+qiListLayout.Padding = UDim.new(0, 4)
+
+-- Sub-tab toggling
+autoTabBtn.MouseButton1Click:Connect(function()
+    autoPage.Visible = true
+    wildQiPage.Visible = false
+    autoTabBtn.BackgroundColor3 = Color3.fromRGB(72, 86, 147)
+    autoTabBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    wildQiTabBtn.BackgroundColor3 = Color3.fromRGB(35, 42, 58)
+    wildQiTabBtn.TextColor3 = Color3.fromRGB(165, 179, 205)
+end)
+
+wildQiTabBtn.MouseButton1Click:Connect(function()
+    autoPage.Visible = false
+    wildQiPage.Visible = true
+    wildQiTabBtn.BackgroundColor3 = Color3.fromRGB(72, 86, 147)
+    wildQiTabBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    autoTabBtn.BackgroundColor3 = Color3.fromRGB(35, 42, 58)
+    autoTabBtn.TextColor3 = Color3.fromRGB(165, 179, 205)
+    refreshQiButtons()
+end)
+
+-- Scanner Logic
+local function scanAllWildQi()
+    local folder = Workspace:FindFirstChild("Murim_WildQi")
+    local qiList = {}
+    if not folder then return qiList end
+
+    for _, desc in ipairs(folder:GetDescendants()) do
+        if desc.Name == "WildQi" or desc.Name:find("WildQi") then
+            local targetPart = desc:IsA("BasePart") and desc or (desc:IsA("Model") and (desc.PrimaryPart or desc:FindFirstChildWhichIsA("BasePart", true)))
+            if targetPart then
+                table.insert(qiList, {
+                    Target = targetPart,
+                    Grade = tonumber(desc:GetAttribute("Grade"))
+                        or tonumber(targetPart:GetAttribute("Grade"))
+                        or tonumber(desc.Parent:GetAttribute("Grade")) or 99,
+                    Name = "WildQi (Direct Target)"
+                })
+            end
+        elseif desc:IsA("BasePart") and desc.Name == "QiSpot" and desc:GetAttribute("Wild") == true then
+            local grade = tonumber(desc:GetAttribute("Grade")) or 0
+            table.insert(qiList, {
+                Target = desc,
+                Grade = grade,
+                Name = GradeNames[grade] or ("QiSpot Grade " .. tostring(grade))
+            })
+        end
+    end
+
+    table.sort(qiList, function(a, b)
+        return a.Grade > b.Grade
+    end)
+
+    return qiList
+end
+
+local function refreshQiButtons()
+    if not qiScrollList or not qiScrollList.Parent then return end
+    for _, child in ipairs(qiScrollList:GetChildren()) do
+        if child:IsA("TextButton") or child:IsA("TextLabel") then
+            child:Destroy()
+        end
+    end
+
+    local qiList = scanAllWildQi()
+
+    if #qiList == 0 then
+        local emptyLabel = Instance.new("TextLabel")
+        emptyLabel.Size = UDim2.new(1, 0, 0, 40)
+        emptyLabel.BackgroundTransparency = 1
+        emptyLabel.Text = "ไม่พบจุด Wild Qi เกิดในแผนที่ขณะนี้"
+        emptyLabel.TextColor3 = Color3.fromRGB(150, 150, 150)
+        emptyLabel.TextSize = 12
+        emptyLabel.Font = Enum.Font.SourceSans
+        emptyLabel.Parent = qiScrollList
+        qiScrollList.CanvasSize = UDim2.new(0, 0, 0, 50)
+        return
+    end
+
+    for i, item in ipairs(qiList) do
+        local btnColor = GradeColors[item.Grade] or GradeColors[0]
+
+        local itemBtn = Instance.new("TextButton")
+        itemBtn.Name = "QiItem_" .. tostring(i)
+        itemBtn.Size = UDim2.new(1, -6, 0, 32)
+        itemBtn.BackgroundColor3 = btnColor
+        itemBtn.Text = string.format("[%d] %s - คลิกเพื่อวาร์ป", i, item.Name)
+        itemBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        itemBtn.TextSize = 12
+        itemBtn.Font = Enum.Font.SourceSansBold
+        itemBtn.LayoutOrder = i
+        itemBtn.Parent = qiScrollList
+
+        local itemCorner = Instance.new("UICorner", itemBtn)
+        itemCorner.CornerRadius = UDim.new(0, 4)
+
+        itemBtn.MouseButton1Click:Connect(function()
+            local char = player.Character
+            if char and char:FindFirstChild("HumanoidRootPart") and item.Target and item.Target.Parent then
+                char.HumanoidRootPart.CFrame = (item.Target:IsA("Model") and item.Target:GetPivot() or item.Target.CFrame) + Vector3.new(0, 3, 0)
+                itemBtn.Text = "✅ วาร์ปสำเร็จ!"
+                task.delay(1.5, function()
+                    if itemBtn and itemBtn.Parent then
+                        itemBtn.Text = string.format("[%d] %s - คลิกเพื่อวาร์ป", i, item.Name)
+                    end
+                end)
+            end
+        end)
+    end
+
+    qiScrollList.CanvasSize = UDim2.new(0, 0, 0, (#qiList * 36) + 10)
+end
+
+-- Discord Webhook Task
+local HttpService = game:GetService("HttpService")
+local sendRequest = request or http_request or (syn and syn.request)
+local notified = setmetatable({}, {__mode = "k"})
+local webhookRevision = 0
+local retryAt = 0
+
+webhookBox.FocusLost:Connect(function(enterPressed)
+    if not enterPressed then return end
+    local url = webhookBox.Text:match("^%s*(.-)%s*$")
+    if url ~= "" and not url:match("^https://discord%.com/api/webhooks/%d+/[%w_-]+$")
+        and not url:match("^https://discord%.com/api/v%d+/webhooks/%d+/[%w_-]+$") then
+        webhookStatus.Text = "URL ไม่ถูกต้อง · ใช้ URL Webhook จาก Discord"
+        return
+    end
+    if url ~= "" and type(sendRequest) ~= "function" then
+        webhookStatus.Text = "ตัวรันนี้ไม่มีฟังก์ชันส่ง HTTP"
+        return
+    end
+    HongmengConfig.DiscordWebhook = url
+    HongmengConfig.DiscordNotify = url ~= ""
+    webhookRevision = webhookRevision + 1
+    table.clear(notified)
+    retryAt = 0
+    webhookStatus.Text = url == "" and "ปิดแจ้ง Discord แล้ว" or "เปิดแจ้งแล้ว · รอ Wild Qi เกรด 11–13"
+end)
+
+task.spawn(function()
+    while not destroyed do
+        if HongmengConfig.DiscordNotify and HongmengConfig.DiscordWebhook ~= "" and time() >= retryAt then
+            if type(sendRequest) ~= "function" then
+                warn("[Wild Qi] Discord requires an executor with an HTTP request function.")
+                break
+            end
+            local batch, lines, included = {}, {}, {}
+            for _, item in ipairs(scanAllWildQi()) do
+                local grade = item.Grade
+                local target = item.Target
+                if (grade == 11 or grade == 12 or grade == 13)
+                    and notified[target] ~= grade and not included[target] then
+                    included[target] = true
+                    table.insert(batch, {target = target, grade = grade})
+                    local position = target.Position
+                    table.insert(lines, string.format("Wild Qi Grade %d · (%.0f, %.0f, %.0f)",
+                        grade, position.X, position.Y, position.Z))
+                    if #batch >= 10 then break end
+                end
+            end
+            if #batch > 0 then
+                table.insert(lines, "Place ID: " .. tostring(game.PlaceId))
+                table.insert(lines, "Server ID: " .. game.JobId)
+                local revision = webhookRevision
+                local url = HongmengConfig.DiscordWebhook
+                url = url .. (string.find(url, "?", 1, true) and "&" or "?") .. "wait=true"
+                local ok, response = pcall(sendRequest, {
+                    Url = url,
+                    Method = "POST",
+                    Headers = {["Content-Type"] = "application/json"},
+                    Body = HttpService:JSONEncode({
+                        content = table.concat(lines, "\n"),
+                        allowed_mentions = {parse = {}}
+                    })
+                })
+                if destroyed then return end
+                if revision ~= webhookRevision then continue end
+                local status = ok and type(response) == "table" and tonumber(response.StatusCode)
+                if status and status >= 200 and status < 300 then
+                    for _, entry in ipairs(batch) do
+                        notified[entry.target] = entry.grade
+                    end
+                    retryAt = time() + 5
+                    webhookStatus.Text = "ส่ง Discord สำเร็จ · " .. tostring(#batch) .. " จุด"
+                else
+                    local delay = 30
+                    if status == 429 then
+                        local decoded, body = pcall(HttpService.JSONDecode, HttpService, response.Body or "")
+                        if decoded and type(body) == "table" then
+                            delay = math.max(delay, tonumber(body.retry_after) or 0)
+                        end
+                    elseif status == 401 or status == 403 or status == 404 then
+                        HongmengConfig.DiscordNotify = false
+                        webhookStatus.Text = "Webhook ถูกปฏิเสธ · ใส่ URL ใหม่แล้ว Enter"
+                    end
+                    warn("[Wild Qi] Discord delivery failed; retrying later. HTTP " .. tostring(status))
+                    retryAt = time() + delay
+                    if HongmengConfig.DiscordNotify then
+                        webhookStatus.Text = "ส่งไม่สำเร็จ · จะลองใหม่ใน " .. tostring(delay) .. " วินาที"
+                    end
+                end
+            end
+        end
+        task.wait(5)
+    end
+end)
+
+-- Hongmeng Rules & Remote
+local hmRules = nil
+pcall(function()
+    local murim = ReplicatedStorage:FindFirstChild("Murim") or ReplicatedStorage:WaitForChild("Murim", 5)
+    local shared = murim and (murim:FindFirstChild("Shared") or murim:WaitForChild("Shared", 5))
+    hmRules = shared and require(shared:WaitForChild("Hongmeng", 5))
+end)
+local opposite = {U = "D", D = "U", L = "R", R = "L"}
+local wardWindowStart = (hmRules and hmRules.Trib and hmRules.Trib.window and hmRules.Trib.window[1]) or -0.15
+local wardWindowEnd = (hmRules and hmRules.Trib and hmRules.Trib.window and hmRules.Trib.window[2]) or 0.15
+local wardCooldown = (hmRules and hmRules.Trib and hmRules.Trib.wardCooldown) or 0.5
+local wardTargetOffset = (wardWindowStart + wardWindowEnd) / 2
+local hmPhase, hmWeave, hmSeq
+local hmBolts = {}
+local hmPos, hmSentPos = 1, 0
+local hmLastSeal, hmLastWard = -math.huge, -math.huge
+local hmInWindow = false
+local lastWarpTime = 0
+local wardStatus = "รอสัญญาณ bolt"
+local wardSent, wardMissed = 0, 0
+
+local function resetHongmeng(nextPhase)
+    hmPhase, hmWeave, hmSeq = nextPhase, nil, nil
+    table.clear(hmBolts)
+    hmInWindow = false
+    hmLastSeal, hmLastWard = -math.huge, -math.huge
+    wardSent, wardMissed = 0, 0
+    wardStatus = "รอสัญญาณ bolt"
+end
+
+local function receiveHongmeng(msg)
+    if type(msg) ~= "table" then return end
+    local op = msg.op
+    if op == "start" then
+        resetHongmeng("gather")
+    elseif op == "result" or op == "seat" then
+        resetHongmeng(nil)
+    elseif op == "phase" and msg.phase ~= hmPhase then
+        resetHongmeng(msg.phase)
+    elseif op == "weave" then
+        hmWeave, hmPhase = msg, "weave"
+    elseif op == "weaveEnd" then
+        hmWeave = nil
+    elseif op == "seq" then
+        hmSeq, hmPhase, hmPos, hmSentPos = msg, "hold", 1, 0
+    elseif op == "seqKey" and hmSeq and type(msg.pos) == "number" then
+        hmPos = math.max(hmPos, msg.pos + 1)
+    elseif op == "seqDone" then
+        hmSeq = nil
+    elseif op == "warded" then
+        wardStatus = "เกมยืนยันป้องกันสำเร็จ"
+    elseif op == "unwarded" then
+        wardMissed = wardMissed + 1
+        wardStatus = "เกมแจ้งว่าป้องกันพลาด"
+    elseif op == "trib" then
+        hmPhase = "trib"
+    elseif op == "bolt" and type(msg.land) == "number" then
+        hmPhase = "trib"
+        table.insert(hmBolts, msg.land)
+        table.sort(hmBolts)
+    end
+end
+
+local boundHongmengRemote = nil
+local function bindHongmengRemote()
+    local murim = ReplicatedStorage:FindFirstChild("Murim")
+    local remotes = murim and murim:FindFirstChild("Remotes")
+    local remote = remotes and remotes:FindFirstChild("Hongmeng")
+    if remote == boundHongmengRemote then return end
+    resetHongmeng(nil)
+    boundHongmengRemote = remote
+    if boundHongmengRemote and boundHongmengRemote:IsA("RemoteEvent") then
+        externalConnections[#externalConnections + 1] = boundHongmengRemote.OnClientEvent:Connect(receiveHongmeng)
+    end
+end
+bindHongmengRemote()
+local remotesFolder = ReplicatedStorage:FindFirstChild("Murim") and ReplicatedStorage.Murim:FindFirstChild("Remotes")
+if remotesFolder then
+    externalConnections[#externalConnections + 1] = remotesFolder.ChildAdded:Connect(bindHongmengRemote)
+    externalConnections[#externalConnections + 1] = remotesFolder.ChildRemoved:Connect(bindHongmengRemote)
+end
+
+local function gateDistance(angle)
+    return math.abs((angle + 180) % 360 - 180)
+end
+
+local function setHongmengEnabled(enabled)
+    HongmengConfig.Enabled = enabled
+    if HongmengConfig.Enabled then
+        toggleHBtn.BackgroundColor3 = Color3.fromRGB(40, 160, 60)
+        toggleHBtn.Text = "AUTO HONGMENG: ON"
+        statusHLabel.Text = "สถานะ: กำลังตรวจจับค่ายกลและยิง Remote..."
+    else
+        toggleHBtn.BackgroundColor3 = Color3.fromRGB(160, 40, 40)
+        toggleHBtn.Text = "AUTO HONGMENG: OFF"
+        statusHLabel.Text = "สถานะ: ปิดการทำงาน"
+    end
+end
+
+toggleHBtn.Activated:Connect(function()
+    setHongmengEnabled(not HongmengConfig.Enabled)
+end)
+
+searchHBtn.Activated:Connect(function()
+    setHongmengEnabled(true)
+end)
+
+autoWarpQiBtn.MouseButton1Click:Connect(function()
+    HongmengConfig.AutoTeleportWildQi = not HongmengConfig.AutoTeleportWildQi
+    autoWarpQiBtn.BackgroundColor3 = HongmengConfig.AutoTeleportWildQi and Color3.fromRGB(40, 160, 60) or Color3.fromRGB(160, 40, 40)
+    autoWarpQiBtn.Text = HongmengConfig.AutoTeleportWildQi and "AUTO BEST: ON" or "AUTO BEST: OFF"
+end)
+
+refreshQiBtn.MouseButton1Click:Connect(function()
+    refreshQiButtons()
+end)
+
+-- Murim_WildQi folder listeners
+task.spawn(function()
+    local wildQiFolder = Workspace:WaitForChild("Murim_WildQi", 10)
+    if wildQiFolder and not destroyed then
+        externalConnections[#externalConnections + 1] = wildQiFolder.DescendantAdded:Connect(function(desc)
+            if desc.Name == "WildQi" or (desc:IsA("BasePart") and desc.Name == "QiSpot") then
+                task.defer(refreshQiButtons)
+            end
+        end)
+        externalConnections[#externalConnections + 1] = wildQiFolder.DescendantRemoving:Connect(function(desc)
+            if desc.Name == "WildQi" or (desc:IsA("BasePart") and desc.Name == "QiSpot") then
+                task.defer(refreshQiButtons)
+            end
+        end)
+    end
+end)
+
+-- Heartbeat loop for Hongmeng Solver and Auto Best Qi Teleport
+externalConnections[#externalConnections + 1] = RunService.Heartbeat:Connect(function()
+    if destroyed then return end
+    local now = tick()
+
+    -- 1. Auto Teleport หาจุด Wild Qi
+    if HongmengConfig.AutoTeleportWildQi and (now - lastWarpTime >= 1.5) then
+        lastWarpTime = now
+        local qiList = scanAllWildQi()
+        if qiList[1] and qiList[1].Target then
+            local char = player.Character
+            if char and char:FindFirstChild("HumanoidRootPart") then
+                local targetCFrame = qiList[1].Target:IsA("Model") and qiList[1].Target:GetPivot() or qiList[1].Target.CFrame
+                char.HumanoidRootPart.CFrame = targetCFrame + Vector3.new(0, 3, 0)
+            end
+        end
+    end
+
+    if not HongmengConfig.Enabled then return end
+    if not boundHongmengRemote or not boundHongmengRemote:IsA("RemoteEvent") then
+        statusHLabel.Text = "รอ Remote Hongmeng"
+        return
+    end
+    local t = Workspace:GetServerTimeNow()
+    statusHLabel.Text = hmPhase and ("เฟส " .. hmPhase) or "รอข้อมูลพิธีจากเกม"
+    if hmPhase == "weave" and hmWeave and t < hmWeave.ends then
+        local ring = hmWeave.rings[hmWeave.active]
+        if not ring then return end
+        local chaos = hmWeave.chaos
+        local runeAngle = ring.base + ring.w * (t - ring.tBase) + ring.key
+        local darkAngle = chaos.base + chaos.w * (t - chaos.tBase)
+        local ready = gateDistance(runeAngle) <= 4 and gateDistance(darkAngle) > chaos.width / 2
+        if ready and not hmInWindow and t - hmLastSeal >= 0.22 then
+            boundHongmengRemote:FireServer({op = "seal", t = t})
+            hmLastSeal, hmInWindow = t, true
+        elseif not ready then
+            hmInWindow = false
+        end
+    elseif hmPhase == "hold" and hmSeq and t < hmSeq.deadline and hmPos ~= hmSentPos then
+        local key = hmSeq.keys[hmPos]
+        if opposite[key] then
+            local dir = hmSeq.inv[hmPos] and opposite[key] or key
+            boundHongmengRemote:FireServer({op = "key", dir = dir})
+            hmSentPos = hmPos
+        end
+    elseif hmPhase == "trib" then
+        while hmBolts[1] and t > hmBolts[1] + wardWindowEnd do
+            table.remove(hmBolts, 1)
+            wardStatus = "พลาดเวลาส่ง · ข้อมูลมาช้าหรือคูลดาวน์"
+        end
+        if hmBolts[1] then
+            local remaining = hmBolts[1] + wardTargetOffset - t
+            if remaining <= 0 then
+                local cooldown = wardCooldown
+                if t - hmLastWard >= cooldown then
+                    boundHongmengRemote:FireServer({op = "ward", t = t})
+                    hmLastWard = t
+                    wardSent = wardSent + 1
+                    table.remove(hmBolts, 1)
+                    wardStatus = "ส่ง ward แล้ว · รอผลจากเกม"
+                else
+                    wardStatus = "รอคูลดาวน์"
+                end
+            else
+                wardStatus = string.format("ส่ง ward ใน %.2f วินาที", remaining)
+            end
+        end
+        statusHLabel.Text = string.format("Trib · ส่ง %d · พลาด %d\n%s", wardSent, wardMissed, wardStatus)
+    end
+end)
+
+local settingsPage = makePage("Settings", 7, "ตั้งค่า")
 newHeading(settingsPage, "ตั้งค่าการฟาร์ม")
 local settingsBody = Instance.new("ScrollingFrame")
 settingsBody.Name = "SettingsContent"
@@ -2339,6 +2964,7 @@ host.isBusy = function()
     return cultivationPhase ~= nil or alchemyAuto or alchemyBusy or alchemyPending
         or alchemyActive or generalMinigameActive or forgeEnabled or forgeBusy
         or awaitingGame or gameActive or gameIsVisible()
+        or (host.HongmengConfig and host.HongmengConfig.Enabled)
 end
 host.showPage(1)
 host.refresh()
@@ -2350,7 +2976,7 @@ report("เมนูหลักเปิดแล้ว • กำลังโ�
 task.spawn(function()
     local ok, reason = xpcall(function() mountWorkshop(hub) end, function(e) return tostring(e) end)
     if ok then
-        report("พร้อมใช้งาน • 6 แท็บ", false)
+        report("พร้อมใช้งาน • 7 แท็บ", false)
         task.delay(3, finishNotice)
     else
         report("โหลดส่วนมินิเกมไม่สำเร็จ: " .. tostring(reason), true)
