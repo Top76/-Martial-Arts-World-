@@ -84,6 +84,11 @@ local knownNPCNames = {}    -- รายชื่อมอนสเตอร์�
 local savedNPCPositions = {}-- บันทึกตำแหน่งมอนสเตอร์ [Name] = CFrame (Auto Save)
 local favoriteNPCNames = {} -- [Name] = true; priority targets for this session
 local currentTarget = nil
+local isAutoFarmBoss = false -- เปิดใช้งาน Auto Farm Boss
+local selectedBossNames = {} -- รายชื่อบอสที่เลือก [Key/Name] = true/false
+local bossCache = {}         -- [Key] = { Name, CFrame, TimeText, InFolder, Key }
+local activeBossTarget = nil
+local bossProbeAt = {}
 
 local isFarming = false
 local isAutoLooting = true -- เปิดใช้งาน Auto Loot เป็นค่าเริ่มต้น
@@ -662,7 +667,269 @@ end
 
 local npcPage = makePage("Monsters", 1, "มอนสเตอร์")
 sectionHeading(npcListHeader, npcPage, "เลือกมอนสเตอร์ • กด ★ เพื่อตีตัวโปรดก่อน")
-local tpPage = makePage("Teleport", 2, "จุดวาร์ป")
+
+--------------------------------------------------------------------------------
+-- ⚔️ Boss Page (Index 2)
+--------------------------------------------------------------------------------
+local function getCFrameFromAnchor(anchor)
+    if not anchor then return nil end
+    if anchor:IsA("BasePart") then return anchor.CFrame end
+    if anchor:IsA("Model") then return anchor:GetPivot() end
+    if anchor:IsA("CFrameValue") then return anchor.Value end
+    if anchor:IsA("Vector3Value") then return CFrame.new(anchor.Value) end
+    if anchor:IsA("ObjectValue") and anchor.Value then
+        local t = anchor.Value
+        if t:IsA("BasePart") then return t.CFrame end
+        if t:IsA("Model") then return t:GetPivot() end
+    end
+    return nil
+end
+
+local function parseBossInfo(bossItem)
+    local bossName = bossItem.Name
+    local timeText = "N/A"
+    local cf = nil
+
+    local anchor = bossItem:FindFirstChild("Anchor")
+    if anchor then
+        cf = getCFrameFromAnchor(anchor)
+        local bossTimer = anchor:FindFirstChild("BossTimer")
+        if bossTimer then
+            local nameObj = bossTimer:FindFirstChild("TextLabel")
+            if nameObj and (nameObj:IsA("TextLabel") or nameObj:IsA("TextButton")) and nameObj.Text ~= "" then
+                bossName = nameObj.Text
+            end
+            
+            for _, child in pairs(bossTimer:GetChildren()) do
+                if child:IsA("TextLabel") and child ~= nameObj then
+                    timeText = child.Text
+                    break
+                elseif child:IsA("ValueBase") then
+                    local rawVal = child.Value
+                    if type(rawVal) == "number" then
+                        if rawVal <= 0 then
+                            timeText = "🔥 บอสเกิดแล้ว!"
+                        elseif rawVal >= 60 then
+                            local mins = math.floor(rawVal / 60)
+                            local secs = math.floor(rawVal % 60)
+                            timeText = string.format("%dm %02ds", mins, secs)
+                        else
+                            timeText = string.format("%.1fs", rawVal)
+                        end
+                    else
+                        timeText = tostring(rawVal)
+                    end
+                    break
+                end
+            end
+        end
+    end
+    
+    return bossName, timeText, cf
+end
+
+local bossPage = makePage("Bosses", 2, "บอส")
+newHeading(bossPage, "ล่าบอสอัตโนมัติ & ตรวจจับเวลาบอส")
+
+local toggleBossBtn = Instance.new("TextButton")
+toggleBossBtn.Name = "ToggleBossFarmBtn"
+toggleBossBtn.Size = UDim2.new(1, -24, 0, 36)
+toggleBossBtn.Position = UDim2.new(0, 12, 0, 44)
+toggleBossBtn.BackgroundColor3 = Color3.fromRGB(160, 40, 40)
+toggleBossBtn.Text = "⚔️ ล่าบอสอัตโนมัติ (Auto Boss: OFF)"
+toggleBossBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+toggleBossBtn.TextSize = 13
+toggleBossBtn.Font = Enum.Font.SourceSansBold
+toggleBossBtn.Parent = bossPage
+Instance.new("UICorner", toggleBossBtn).CornerRadius = UDim.new(0, 6)
+
+local bossSubHeading = Instance.new("TextLabel")
+bossSubHeading.Size = UDim2.new(1, -24, 0, 20)
+bossSubHeading.Position = UDim2.new(0, 12, 0, 84)
+bossSubHeading.BackgroundTransparency = 1
+bossSubHeading.Text = "เลือกบอสที่ต้องการตี • บอสเกิดวาร์ปไปตีทันที • ตีเสร็จวาร์ปกลับมาฟาร์ม"
+bossSubHeading.TextColor3 = Color3.fromRGB(165, 179, 205)
+bossSubHeading.TextSize = 11
+bossSubHeading.Font = Enum.Font.SourceSans
+bossSubHeading.TextXAlignment = Enum.TextXAlignment.Left
+bossSubHeading.Parent = bossPage
+
+local bossScrollFrame = Instance.new("ScrollingFrame")
+bossScrollFrame.Name = "BossScrollFrame"
+bossScrollFrame.Size = UDim2.new(1, -24, 1, -112)
+bossScrollFrame.Position = UDim2.new(0, 12, 0, 106)
+bossScrollFrame.BackgroundColor3 = Color3.fromRGB(18, 23, 33)
+bossScrollFrame.BorderSizePixel = 0
+bossScrollFrame.ScrollBarThickness = 4
+bossScrollFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
+bossScrollFrame.Parent = bossPage
+Instance.new("UICorner", bossScrollFrame).CornerRadius = UDim.new(0, 6)
+
+local bossListLayout = Instance.new("UIListLayout")
+bossListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+bossListLayout.Padding = UDim.new(0, 6)
+bossListLayout.Parent = bossScrollFrame
+
+bossListLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+    bossScrollFrame.CanvasSize = UDim2.new(0, 0, 0, bossListLayout.AbsoluteContentSize.Y + 10)
+end)
+
+toggleBossBtn.MouseButton1Click:Connect(function()
+    isAutoFarmBoss = not isAutoFarmBoss
+    if isAutoFarmBoss then
+        toggleBossBtn.BackgroundColor3 = Color3.fromRGB(40, 160, 60)
+        toggleBossBtn.Text = "⚔️ ล่าบอสอัตโนมัติ (Auto Boss: ON)"
+    else
+        toggleBossBtn.BackgroundColor3 = Color3.fromRGB(160, 40, 40)
+        toggleBossBtn.Text = "⚔️ ล่าบอสอัตโนมัติ (Auto Boss: OFF)"
+        activeBossTarget = nil
+    end
+end)
+
+local function updateBossTimers()
+    local bossFolder = Workspace:FindFirstChild("Murim_BossTimers")
+    local activeInFolder = {}
+
+    if bossFolder then
+        for _, item in pairs(bossFolder:GetChildren()) do
+            activeInFolder[item.Name] = true
+            local bName, tText, cf = parseBossInfo(item)
+
+            if not bossCache[item.Name] then
+                bossCache[item.Name] = {}
+            end
+            bossCache[item.Name].Key = item.Name
+            bossCache[item.Name].Name = bName
+            if cf then
+                bossCache[item.Name].CFrame = cf
+            end
+            bossCache[item.Name].TimeText = tText
+            bossCache[item.Name].InFolder = true
+        end
+    end
+
+    for key, data in pairs(bossCache) do
+        if not activeInFolder[key] then
+            data.InFolder = false
+            data.TimeText = "🔥 บอสเกิดแล้ว!"
+        end
+    end
+
+    if not bossScrollFrame or not bossScrollFrame.Parent then return end
+
+    local existingCards = {}
+    for _, child in pairs(bossScrollFrame:GetChildren()) do
+        if child:IsA("Frame") then
+            existingCards[child.Name] = child
+        end
+    end
+
+    for key, data in pairs(bossCache) do
+        local card = existingCards[key]
+        local isSelected = selectedBossNames[key] == true
+        local isSpawned = data.TimeText and data.TimeText:find("เกิดแล้ว")
+
+        if not card then
+            card = Instance.new("Frame")
+            card.Name = key
+            card.Size = UDim2.new(1, -6, 0, 42)
+            card.BackgroundColor3 = Color3.fromRGB(35, 35, 45)
+            card.BorderSizePixel = 0
+            card.Parent = bossScrollFrame
+
+            local cardCorner = Instance.new("UICorner")
+            cardCorner.CornerRadius = UDim.new(0, 6)
+            cardCorner.Parent = card
+
+            local selectBtn = Instance.new("TextButton")
+            selectBtn.Name = "SelectBtn"
+            selectBtn.Size = UDim2.new(0.50, -5, 1, 0)
+            selectBtn.Position = UDim2.new(0, 8, 0, 0)
+            selectBtn.TextColor3 = Color3.fromRGB(240, 240, 240)
+            selectBtn.TextSize = 13
+            selectBtn.Font = Enum.Font.SourceSansBold
+            selectBtn.TextXAlignment = Enum.TextXAlignment.Left
+            selectBtn.TextTruncate = Enum.TextTruncate.AtEnd
+            selectBtn.BackgroundTransparency = 1
+            selectBtn.Parent = card
+
+            local valLabel = Instance.new("TextLabel")
+            valLabel.Name = "ValLabel"
+            valLabel.Size = UDim2.new(0.30, -5, 1, 0)
+            valLabel.Position = UDim2.new(0.50, 0, 0, 0)
+            valLabel.TextColor3 = Color3.fromRGB(85, 255, 127)
+            valLabel.TextSize = 12
+            valLabel.Font = Enum.Font.SourceSansBold
+            valLabel.TextXAlignment = Enum.TextXAlignment.Right
+            valLabel.BackgroundTransparency = 1
+            valLabel.Parent = card
+
+            local tpBtn = Instance.new("TextButton")
+            tpBtn.Name = "TPBtn"
+            tpBtn.Size = UDim2.new(0.18, -6, 0, 26)
+            tpBtn.Position = UDim2.new(0.82, 0, 0.5, -13)
+            tpBtn.BackgroundColor3 = Color3.fromRGB(0, 140, 240)
+            tpBtn.Text = "TP"
+            tpBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+            tpBtn.Font = Enum.Font.SourceSansBold
+            tpBtn.TextSize = 12
+            tpBtn.Parent = card
+
+            local btnCorner = Instance.new("UICorner")
+            btnCorner.CornerRadius = UDim.new(0, 4)
+            btnCorner.Parent = tpBtn
+
+            selectBtn.MouseButton1Click:Connect(function()
+                selectedBossNames[key] = not selectedBossNames[key]
+                updateBossTimers()
+            end)
+
+            tpBtn.MouseButton1Click:Connect(function()
+                local currentData = bossCache[key]
+                if currentData and currentData.CFrame then
+                    local char = player.Character
+                    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                    if hrp then
+                        hrp.CFrame = currentData.CFrame * CFrame.new(0, 4, 0)
+                        tpBtn.Text = "✅"
+                        task.delay(1, function()
+                            if tpBtn and tpBtn.Parent then tpBtn.Text = "TP" end
+                        end)
+                    end
+                end
+            end)
+        end
+
+        local selectBtn = card:FindFirstChild("SelectBtn")
+        local valLabel = card:FindFirstChild("ValLabel")
+
+        if selectBtn and valLabel then
+            selectBtn.Text = (isSelected and "[✓] " or "[ ] ") .. (data.Name or key)
+            valLabel.Text = data.TimeText or "N/A"
+
+            if isSpawned then
+                valLabel.TextColor3 = Color3.fromRGB(255, 80, 80)
+                card.BackgroundColor3 = isSelected and Color3.fromRGB(75, 30, 35) or Color3.fromRGB(55, 25, 30)
+            else
+                valLabel.TextColor3 = Color3.fromRGB(85, 255, 127)
+                card.BackgroundColor3 = isSelected and Color3.fromRGB(30, 60, 45) or Color3.fromRGB(35, 35, 45)
+            end
+        end
+    end
+end
+
+externalConnections[#externalConnections + 1] = Workspace.ChildAdded:Connect(function(child)
+    if child.Name == "Murim_BossTimers" then updateBossTimers() end
+end)
+
+task.spawn(function()
+    while not destroyed do
+        pcall(updateBossTimers)
+        task.wait(1)
+    end
+end)
+
+local tpPage = makePage("Teleport", 3, "จุดวาร์ป")
 sectionHeading(tpHeaderLabel, tpPage, "จุดวาร์ป • บันทึกอัตโนมัติ • เลเวลสูง → ต่ำ")
 scrollFrame.Parent = npcPage
 tpScrollFrame.Parent = tpPage
@@ -676,7 +943,7 @@ for _, list in ipairs({scrollFrame, tpScrollFrame}) do
 end
 
 --------------------------------------------------------------------------------
--- ☯️ Hongmeng & Wild Qi Page (Index 6)
+-- ☯️ Hongmeng & Wild Qi Page (Index 7)
 --------------------------------------------------------------------------------
 local HongmengConfig = {
     Enabled = false,
@@ -701,7 +968,7 @@ local GradeNames = {
     [5]  = "Grade 5 (Thunder)",
 }
 
-local hongmengPage = makePage("Hongmeng", 6, "Hongmeng")
+local hongmengPage = makePage("Hongmeng", 7, "Hongmeng")
 newHeading(hongmengPage, "พิธี Hongmeng & จุดเกิด Wild Qi")
 
 local hongmengBody = Instance.new("Frame")
@@ -1298,7 +1565,7 @@ externalConnections[#externalConnections + 1] = RunService.Heartbeat:Connect(fun
     end
 end)
 
-local settingsPage = makePage("Settings", 7, "ตั้งค่า")
+local settingsPage = makePage("Settings", 8, "ตั้งค่า")
 newHeading(settingsPage, "ตั้งค่าการฟาร์ม")
 local settingsBody = Instance.new("ScrollingFrame")
 settingsBody.Name = "SettingsContent"
@@ -1427,7 +1694,6 @@ hubUI.makePage = makePage
 hubUI.showPage = showPage
 hubUI.settingsBody = settingsBody
 showPage(1)
-end
 
 
 local function restoreHitboxes()
@@ -1569,6 +1835,87 @@ local function isAlive(npc)
 	return targetPart ~= nil
 end
 
+local function findBossInNPCs(key, data)
+    local npcsFolder = Workspace:FindFirstChild("Murim_NPCs")
+    if not npcsFolder then return nil end
+    local targetName = (data.Name or key):lower()
+    local keyLower = key:lower()
+
+    -- 1. Check exact or partial name match
+    for _, npc in ipairs(npcsFolder:GetChildren()) do
+        if isAlive(npc) then
+            local nName = npc.Name:lower()
+            if nName == targetName or nName:find(targetName, 1, true) or nName:find(keyLower, 1, true) then
+                return npc
+            end
+        end
+    end
+
+    -- 2. If CFrame is known, check proximity to spawn anchor
+    if data.CFrame then
+        local anchorPos = data.CFrame.Position
+        for _, npc in ipairs(npcsFolder:GetChildren()) do
+            if isAlive(npc) then
+                local part = npc:FindFirstChild("HumanoidRootPart") or npc.PrimaryPart or npc:FindFirstChild("Torso")
+                if part and (part.Position - anchorPos).Magnitude <= 120 then
+                    return npc
+                end
+            end
+        end
+    end
+    return nil
+end
+
+local activeBossProbeCount = 0
+local function chooseBossTarget()
+    if not isAutoFarmBoss then return nil, false, nil end
+    local now = os.clock()
+
+    -- Check if we currently have an active boss
+    if activeBossTarget then
+        local data = bossCache[activeBossTarget.Key]
+        if data and selectedBossNames[activeBossTarget.Key] then
+            local npc = findBossInNPCs(activeBossTarget.Key, data)
+            if npc and isAlive(npc) then
+                local part = npc:FindFirstChild("HumanoidRootPart") or npc.PrimaryPart or npc:FindFirstChild("Torso")
+                if part then
+                    return part.CFrame, true, npc
+                end
+            end
+        end
+        -- Boss died or despawned!
+        activeBossTarget = nil
+        cachedTarget = nil
+        targetScanAt = 0
+        activeBossProbeCount = 0
+    end
+
+    -- Find any selected boss that is spawned
+    for key, isSelected in pairs(selectedBossNames) do
+        if isSelected then
+            local data = bossCache[key]
+            if data and data.TimeText and data.TimeText:find("เกิดแล้ว") then
+                local probeTime = bossProbeAt[key] or 0
+                if now >= probeTime then
+                    local npc = findBossInNPCs(key, data)
+                    if npc and isAlive(npc) then
+                        activeBossTarget = { Key = key, NPC = npc, Name = data.Name }
+                        activeBossProbeCount = 0
+                        local part = npc:FindFirstChild("HumanoidRootPart") or npc.PrimaryPart or npc:FindFirstChild("Torso")
+                        if part then
+                            return part.CFrame, true, npc
+                        end
+                    elseif data.CFrame then
+                        return data.CFrame, false, nil
+                    end
+                end
+            end
+        end
+    end
+
+    return nil, false, nil
+end
+
 local function getHighestLevelTarget()
     local now = os.clock()
     if now < targetScanAt then
@@ -1683,6 +2030,8 @@ local function autoSaveNPCPosition(npc)
 end
 
 local function stopAll()
+    activeBossTarget = nil
+    activeBossProbeCount = 0
 	isFarming = false
     currentTarget = nil
     cachedTarget = nil
@@ -1752,8 +2101,37 @@ local function startFarming()
 			local hrp = character and character:FindFirstChild("HumanoidRootPart")
 
 			if hrp then
-                local targetCF, aliveStatus, npcObj = getHighestLevelTarget()
-                local favoriteReady = aliveStatus and npcObj and favoriteNPCNames[npcObj.Name]
+                local bossCF, bossAlive, bossObj = chooseBossTarget()
+                local targetCF, aliveStatus, npcObj
+                local isBoss = false
+
+                if bossCF and bossAlive and bossObj then
+                    targetCF = bossCF
+                    aliveStatus = true
+                    npcObj = bossObj
+                    isBoss = true
+                    startBtn.Text = "กำลังตีบอส: " .. tostring(npcObj.Name)
+                elseif bossCF and not bossAlive then
+                    -- Boss is spawned, teleport to its anchor position so client streams it in!
+                    activeBossProbeCount = (activeBossProbeCount or 0) + 1
+                    if activeBossProbeCount > 15 then
+                        for key, isSelected in pairs(selectedBossNames) do
+                            if isSelected and bossCache[key] and bossCache[key].CFrame == bossCF then
+                                bossProbeAt[key] = os.clock() + 20
+                            end
+                        end
+                        activeBossProbeCount = 0
+                    else
+                        hrp.CFrame = bossCF * CFrame.new(0, 4, 0)
+                        startBtn.Text = "วาร์ปหาบอส..."
+                        task.wait(0.25)
+                        continue
+                    end
+                else
+                    targetCF, aliveStatus, npcObj = getHighestLevelTarget()
+                end
+
+                local favoriteReady = isBoss or (aliveStatus and npcObj and favoriteNPCNames[npcObj.Name])
                 local dropsFolder = Workspace:FindFirstChild("Murim_Drops")
 				local validDrop = nil
 				
@@ -1803,6 +2181,27 @@ local function startFarming()
 						hrp.CFrame = targetCF * CFrame.new(0, heightUnder, 0) * lyingRotation
 					else
 						currentTarget = nil
+                        -- If we were away fighting a boss or died, and no selected monsters are currently loaded:
+                        -- Teleport back to the monster's saved position so streaming loads them!
+                        local returnCF = nil
+                        for name, isFav in pairs(favoriteNPCNames) do
+                            if isFav and savedNPCPositions[name] then
+                                returnCF = savedNPCPositions[name]
+                                break
+                            end
+                        end
+                        if not returnCF then
+                            for name, isSel in pairs(selectedNPCNames) do
+                                if isSel and savedNPCPositions[name] then
+                                    returnCF = savedNPCPositions[name]
+                                    break
+                                end
+                            end
+                        end
+                        if returnCF then
+                            hrp.CFrame = returnCF
+                            task.wait(0.35)
+                        end
 					end
 					task.wait(0.03)
 				end
@@ -2953,9 +3352,9 @@ local function mountPage(name, index, caption, contents, height)
     contents.Size = UDim2.new(1, -6, 0, height)
     contents.Visible = true
 end
-mountPage("Alchemy", 3, "ปรุงยา", alchemyPage, 390)
-mountPage("Forge", 4, "Forge", forgePage, 400)
-mountPage("Cultivation", 5, "ทะลวงขั้น", breakthroughPage, 400)
+mountPage("Alchemy", 4, "ปรุงยา", alchemyPage, 390)
+mountPage("Forge", 5, "Forge", forgePage, 400)
+mountPage("Cultivation", 6, "ทะลวงขั้น", breakthroughPage, 400)
 panel.Visible = false
 restore.Visible = false
 host.stopWorkshop = stopWorkshop
@@ -2976,7 +3375,7 @@ report("เมนูหลักเปิดแล้ว • กำลังโ�
 task.spawn(function()
     local ok, reason = xpcall(function() mountWorkshop(hub) end, function(e) return tostring(e) end)
     if ok then
-        report("พร้อมใช้งาน • 7 แท็บ", false)
+        report("พร้อมใช้งาน • 8 แท็บ", false)
         task.delay(3, finishNotice)
     else
         report("โหลดส่วนมินิเกมไม่สำเร็จ: " .. tostring(reason), true)
