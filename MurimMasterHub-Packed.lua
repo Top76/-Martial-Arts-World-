@@ -1694,6 +1694,7 @@ hubUI.makePage = makePage
 hubUI.showPage = showPage
 hubUI.settingsBody = settingsBody
 showPage(1)
+end
 
 
 local function restoreHitboxes()
