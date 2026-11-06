@@ -86,9 +86,97 @@ local favoriteNPCNames = {} -- [Name] = true; priority targets for this session
 local currentTarget = nil
 local isAutoFarmBoss = false -- เปิดใช้งาน Auto Farm Boss
 local selectedBossNames = {} -- รายชื่อบอสที่เลือก [Key/Name] = true/false
-local bossCache = {}         -- [Key] = { Name, CFrame, TimeText, InFolder, Key }
+local bossCache = {}         -- [Key] = { Name, CFrame, TimeText, InFolder, Key, Level }
 local activeBossTarget = nil
 local bossProbeAt = {}
+local updateBossTimers = nil
+
+local KNOWN_BOSSES = {
+    {
+        Key = "Ye Wuxian, the Stringless Bow",
+        Name = "Ye Wuxian, the Stringless Bow",
+        Alias = {"ye wuxian", "stringless bow", "wuxian"},
+        Level = 95
+    },
+    {
+        Key = "Qiongyu, the White-Jade Dragon",
+        Name = "Qiongyu, the White-Jade Dragon",
+        Alias = {"qiongyu", "white-jade dragon", "jade dragon", "white jade dragon"},
+        Level = 92
+    }
+}
+
+local function resolveBossKey(rawName)
+    if not rawName or rawName == "" then return nil end
+    local lower = rawName:lower()
+    for _, info in ipairs(KNOWN_BOSSES) do
+        if info.Key:lower() == lower or info.Name:lower() == lower then
+            return info.Key
+        end
+        for _, alias in ipairs(info.Alias or {}) do
+            if lower:find(alias:lower(), 1, true) then
+                return info.Key
+            end
+        end
+    end
+    for key, data in pairs(bossCache) do
+        local kLow = key:lower()
+        local dLow = (data.Name or ""):lower()
+        if kLow == lower or dLow == lower or kLow:find(lower, 1, true) or lower:find(kLow, 1, true) then
+            return key
+        end
+    end
+    return rawName
+end
+
+local function checkIsBossName(name)
+    if not name or name == "" then return false end
+    local lower = name:lower()
+    for _, info in ipairs(KNOWN_BOSSES) do
+        if info.Key == name or info.Name == name or lower == info.Key:lower() or lower == info.Name:lower() then
+            return true
+        end
+        for _, alias in ipairs(info.Alias or {}) do
+            if lower:find(alias:lower(), 1, true) then
+                return true
+            end
+        end
+    end
+    if name:find(",%s*the%s+") then
+        return true
+    end
+    if lower:find("dragon") or lower:find("boss") then
+        return true
+    end
+    if bossCache[name] then
+        return true
+    end
+    return false
+end
+
+local function checkIsBoss(npc)
+    if not npc or not npc:IsA("Model") then return false, nil end
+    local name = npc.Name
+    if checkIsBossName(name) then
+        return true, resolveBossKey(name) or name
+    end
+    if npc:FindFirstChild("BossTimer", true) then
+        return true, name
+    end
+    return false, nil
+end
+
+-- Pre-seed bossCache so Boss tab is NEVER blank!
+for _, info in ipairs(KNOWN_BOSSES) do
+    bossCache[info.Key] = {
+        Key = info.Key,
+        Name = info.Name,
+        Level = info.Level,
+        TimeText = "🔥 บอสเกิดแล้ว!",
+        InFolder = false,
+        CFrame = nil
+    }
+end
 
 local isFarming = false
 local isAutoLooting = true -- เปิดใช้งาน Auto Loot เป็นค่าเริ่มต้น
@@ -638,6 +726,11 @@ local function showPage(index)
             tabs[i].TextColor3 = i == index and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(165, 179, 205)
         end
     end
+    if index == 2 and typeof(updateBossTimers) == "function" then
+        task.defer(function()
+            pcall(updateBossTimers)
+        end)
+    end
 end
 local function makePage(name, index, caption)
     local page = Instance.new("Frame")
@@ -690,22 +783,38 @@ local function parseBossInfo(bossItem)
     local timeText = "N/A"
     local cf = nil
 
-    local anchor = bossItem:FindFirstChild("Anchor")
+    local anchor = bossItem:FindFirstChild("Anchor") or bossItem
     if anchor then
         cf = getCFrameFromAnchor(anchor)
-        local bossTimer = anchor:FindFirstChild("BossTimer")
+        local bossTimer = (bossItem:FindFirstChild("Anchor") and bossItem.Anchor:FindFirstChild("BossTimer"))
+            or bossItem:FindFirstChild("BossTimer")
+            or bossItem:FindFirstChildWhichIsA("BillboardGui", true)
+            or bossItem:FindFirstChildWhichIsA("SurfaceGui", true)
         if bossTimer then
-            local nameObj = bossTimer:FindFirstChild("TextLabel")
-            if nameObj and (nameObj:IsA("TextLabel") or nameObj:IsA("TextButton")) and nameObj.Text ~= "" then
-                bossName = nameObj.Text
+            local textLabels = {}
+            for _, desc in ipairs(bossTimer:GetDescendants()) do
+                if (desc:IsA("TextLabel") or desc:IsA("TextButton")) and desc.Text ~= "" then
+                    table.insert(textLabels, desc)
+                end
             end
-            
-            for _, child in pairs(bossTimer:GetChildren()) do
-                if child:IsA("TextLabel") and child ~= nameObj then
-                    timeText = child.Text
-                    break
-                elseif child:IsA("ValueBase") then
-                    local rawVal = child.Value
+            if #textLabels > 0 then
+                local nameObj = nil
+                local timerObj = nil
+                for _, lbl in ipairs(textLabels) do
+                    local txt = lbl.Text
+                    if txt:find("%d+[%smh:]") or txt:find("เกิดแล้ว") then
+                        timerObj = lbl
+                    else
+                        nameObj = lbl
+                    end
+                end
+                if nameObj then bossName = nameObj.Text end
+                if timerObj then timeText = timerObj.Text end
+            end
+
+            for _, desc in ipairs(bossTimer:GetDescendants()) do
+                if desc:IsA("ValueBase") then
+                    local rawVal = desc.Value
                     if type(rawVal) == "number" then
                         if rawVal <= 0 then
                             timeText = "🔥 บอสเกิดแล้ว!"
@@ -786,36 +895,129 @@ toggleBossBtn.MouseButton1Click:Connect(function()
     end
 end)
 
-local function updateBossTimers()
+updateBossTimers = function()
+    -- 1. Ensure known bosses are pre-seeded in bossCache and have CFrames from savedNPCPositions
+    for _, info in ipairs(KNOWN_BOSSES) do
+        local key = info.Key
+        if not bossCache[key] then
+            bossCache[key] = {
+                Key = key,
+                Name = info.Name,
+                Level = info.Level,
+                TimeText = "🔥 บอสเกิดแล้ว!",
+                InFolder = false,
+                CFrame = nil
+            }
+        end
+        if not bossCache[key].CFrame then
+            bossCache[key].CFrame = savedNPCPositions[key] or savedNPCPositions[info.Name]
+        end
+    end
+
+    -- 2. Scan Workspace.Murim_BossTimers (countdown timer objects when bosses are dead)
     local bossFolder = Workspace:FindFirstChild("Murim_BossTimers")
     local activeInFolder = {}
 
     if bossFolder then
         for _, item in pairs(bossFolder:GetChildren()) do
-            activeInFolder[item.Name] = true
             local bName, tText, cf = parseBossInfo(item)
+            local key = resolveBossKey(bName) or resolveBossKey(item.Name) or item.Name
+            activeInFolder[key] = true
 
-            if not bossCache[item.Name] then
-                bossCache[item.Name] = {}
+            if not bossCache[key] then
+                bossCache[key] = {
+                    Key = key,
+                    Name = bName or key,
+                }
             end
-            bossCache[item.Name].Key = item.Name
-            bossCache[item.Name].Name = bName
+            if bName and bName ~= "" and bossCache[key].Name == key then
+                bossCache[key].Name = bName
+            end
             if cf then
-                bossCache[item.Name].CFrame = cf
+                bossCache[key].CFrame = cf
+                savedNPCPositions[key] = cf
+                savedNPCPositions[bName or key] = cf
+            elseif not bossCache[key].CFrame then
+                bossCache[key].CFrame = savedNPCPositions[key] or savedNPCPositions[bName or key]
             end
-            bossCache[item.Name].TimeText = tText
-            bossCache[item.Name].InFolder = true
+            bossCache[key].TimeText = tText
+            bossCache[key].InFolder = true
         end
     end
 
+    -- 3. Scan Workspace.Murim_NPCs (live bosses currently spawned in the world)
+    local npcsFolder = Workspace:FindFirstChild("Murim_NPCs")
+    if npcsFolder then
+        for _, npc in ipairs(npcsFolder:GetChildren()) do
+            if npc:IsA("Model") and isAlive(npc) then
+                local isBoss, bKey = checkIsBoss(npc)
+                if isBoss and bKey then
+                    local part = npc:FindFirstChild("HumanoidRootPart") or npc.PrimaryPart or npc:FindFirstChild("Torso")
+                    local cf = part and part.CFrame
+                    if not bossCache[bKey] then
+                        bossCache[bKey] = {
+                            Key = bKey,
+                            Name = npc.Name,
+                            Level = getNPCLevel(npc)
+                        }
+                    end
+                    if cf then
+                        bossCache[bKey].CFrame = cf
+                        savedNPCPositions[bKey] = cf
+                        savedNPCPositions[npc.Name] = cf
+                    end
+                    bossCache[bKey].TimeText = "🔥 บอสเกิดแล้ว!"
+                    bossCache[bKey].InFolder = false
+                end
+            end
+        end
+    end
+
+    -- 4. Check savedNPCPositions for any previously recorded bosses
+    for name, cf in pairs(savedNPCPositions) do
+        if checkIsBossName(name) then
+            local bKey = resolveBossKey(name) or name
+            if not bossCache[bKey] then
+                bossCache[bKey] = {
+                    Key = bKey,
+                    Name = name,
+                    Level = knownNPCNames[name] or 0,
+                    TimeText = "🔥 บอสเกิดแล้ว!",
+                    InFolder = false,
+                    CFrame = cf
+                }
+            elseif not bossCache[bKey].CFrame then
+                bossCache[bKey].CFrame = cf
+            end
+        end
+    end
+
+    -- 5. Any boss not in Murim_BossTimers is considered alive/spawned
     for key, data in pairs(bossCache) do
         if not activeInFolder[key] then
             data.InFolder = false
             data.TimeText = "🔥 บอสเกิดแล้ว!"
+            if not data.CFrame then
+                data.CFrame = savedNPCPositions[key] or savedNPCPositions[data.Name]
+            end
         end
     end
 
     if not bossScrollFrame or not bossScrollFrame.Parent then return end
+
+    -- Sort bosses by Level descending, then Name
+    local sortedBosses = {}
+    for key, data in pairs(bossCache) do
+        table.insert(sortedBosses, data)
+    end
+    table.sort(sortedBosses, function(a, b)
+        local la = a.Level or 0
+        local lb = b.Level or 0
+        if la == lb then
+            return (a.Name or a.Key) < (b.Name or b.Key)
+        end
+        return la > lb
+    end)
 
     local existingCards = {}
     for _, child in pairs(bossScrollFrame:GetChildren()) do
@@ -824,7 +1026,8 @@ local function updateBossTimers()
         end
     end
 
-    for key, data in pairs(bossCache) do
+    for idx, data in ipairs(sortedBosses) do
+        local key = data.Key
         local card = existingCards[key]
         local isSelected = selectedBossNames[key] == true
         local isSpawned = data.TimeText and data.TimeText:find("เกิดแล้ว")
@@ -881,31 +1084,43 @@ local function updateBossTimers()
 
             selectBtn.MouseButton1Click:Connect(function()
                 selectedBossNames[key] = not selectedBossNames[key]
-                updateBossTimers()
+                pcall(updateBossTimers)
             end)
 
             tpBtn.MouseButton1Click:Connect(function()
                 local currentData = bossCache[key]
-                if currentData and currentData.CFrame then
+                local targetCF = (currentData and currentData.CFrame)
+                    or savedNPCPositions[key]
+                    or (currentData and savedNPCPositions[currentData.Name])
+                if targetCF then
                     local char = player.Character
                     local hrp = char and char:FindFirstChild("HumanoidRootPart")
                     if hrp then
-                        hrp.CFrame = currentData.CFrame * CFrame.new(0, 4, 0)
+                        hrp.CFrame = targetCF * CFrame.new(0, 4, 0)
                         tpBtn.Text = "✅"
                         task.delay(1, function()
                             if tpBtn and tpBtn.Parent then tpBtn.Text = "TP" end
                         end)
                     end
+                else
+                    tpBtn.Text = "❌ รอพิกัด"
+                    task.delay(1.5, function()
+                        if tpBtn and tpBtn.Parent then tpBtn.Text = "TP" end
+                    end)
                 end
             end)
         end
 
+        card.LayoutOrder = idx
+
         local selectBtn = card:FindFirstChild("SelectBtn")
         local valLabel = card:FindFirstChild("ValLabel")
+        local tpBtn = card:FindFirstChild("TPBtn")
 
         if selectBtn and valLabel then
-            selectBtn.Text = (isSelected and "[✓] " or "[ ] ") .. (data.Name or key)
-            valLabel.Text = data.TimeText or "N/A"
+            local lvlStr = (data.Level and data.Level > 0) and string.format(" [Lv.%d]", data.Level) or ""
+            selectBtn.Text = (isSelected and "[✓] " or "[ ] ") .. (data.Name or key) .. lvlStr
+            valLabel.Text = data.TimeText or "🔥 บอสเกิดแล้ว!"
 
             if isSpawned then
                 valLabel.TextColor3 = Color3.fromRGB(255, 80, 80)
@@ -915,7 +1130,27 @@ local function updateBossTimers()
                 card.BackgroundColor3 = isSelected and Color3.fromRGB(30, 60, 45) or Color3.fromRGB(35, 35, 45)
             end
         end
+
+        if tpBtn then
+            local hasCF = data.CFrame or savedNPCPositions[key] or (data.Name and savedNPCPositions[data.Name])
+            if hasCF then
+                tpBtn.BackgroundColor3 = Color3.fromRGB(0, 140, 240)
+                if tpBtn.Text ~= "✅" and not tpBtn.Text:find("❌") then
+                    tpBtn.Text = "TP"
+                end
+            else
+                tpBtn.BackgroundColor3 = Color3.fromRGB(70, 70, 85)
+                if tpBtn.Text ~= "✅" and not tpBtn.Text:find("❌") then
+                    tpBtn.Text = "รอพิกัด"
+                end
+            end
+        end
     end
+
+    local totalCards = #sortedBosses
+    local layoutH = bossListLayout.AbsoluteContentSize.Y
+    if layoutH <= 0 then layoutH = totalCards * 48 end
+    bossScrollFrame.CanvasSize = UDim2.new(0, 0, 0, math.max(layoutH + 10, totalCards * 48 + 10))
 end
 
 externalConnections[#externalConnections + 1] = Workspace.ChildAdded:Connect(function(child)
@@ -1713,6 +1948,7 @@ end
 
 local function isFriendlyOrTalkable(npc)
     if not npc or not npc:IsA("Model") then return true end
+    if checkIsBoss(npc) then return false end
 
     -- 1. ProximityPrompt check (interactive dialogue/quest NPCs have prompts)
     if npc:FindFirstChildWhichIsA("ProximityPrompt", true) then return true end
@@ -1888,6 +2124,20 @@ local function findBossInNPCs(key, data)
             if nName == targetName or nName:find(targetName, 1, true) or targetName:find(nName, 1, true)
                or nName:find(keyLower, 1, true) or keyLower:find(nName, 1, true) then
                 return npc
+            end
+        end
+    end
+
+    -- 2. Check aliases from KNOWN_BOSSES
+    for _, info in ipairs(KNOWN_BOSSES) do
+        if info.Key == key or info.Name == key or (data and (info.Key == data.Name or info.Name == data.Name)) then
+            for _, alias in ipairs(info.Alias or {}) do
+                local aLow = alias:lower()
+                for _, npc in ipairs(npcsFolder:GetChildren()) do
+                    if isAlive(npc) and npc.Name:lower():find(aLow, 1, true) then
+                        return npc
+                    end
+                end
             end
         end
     end
@@ -2089,6 +2339,24 @@ local function autoSaveNPCPosition(npc)
 			queueRefresh()
 		end
 	end
+
+    local isBoss, bKey = checkIsBoss(npc)
+    if isBoss and bKey then
+        if not bossCache[bKey] then
+            bossCache[bKey] = {
+                Key = bKey,
+                Name = npc.Name,
+                Level = lvl
+            }
+        end
+        if targetPart then
+            bossCache[bKey].CFrame = targetPart.CFrame
+            savedNPCPositions[bKey] = targetPart.CFrame
+        end
+        if not bossCache[bKey].InFolder then
+            bossCache[bKey].TimeText = "🔥 บอสเกิดแล้ว!"
+        end
+    end
 end
 
 local function stopAll()
@@ -2343,7 +2611,7 @@ refreshNPCList = function()
 
 	local nameList = {}
 	for name, lvl in pairs(knownNPCNames) do
-        if (lvl or 0) > 0 then
+        if (lvl or 0) > 0 and not checkIsBossName(name) then
 		    table.insert(nameList, name)
         end
 	end
