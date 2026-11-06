@@ -1711,8 +1711,46 @@ local function restoreHitboxes()
     end
 end
 
+local function isFriendlyOrTalkable(npc)
+    if not npc or not npc:IsA("Model") then return true end
+
+    -- 1. ProximityPrompt check (interactive dialogue/quest NPCs have prompts)
+    if npc:FindFirstChildWhichIsA("ProximityPrompt", true) then return true end
+
+    -- 2. Dialog / DialogChoice objects
+    if npc:FindFirstChildWhichIsA("Dialog", true) or npc:FindFirstChildWhichIsA("DialogChoice", true) then return true end
+
+    -- 3. ClickDetector
+    if npc:FindFirstChildWhichIsA("ClickDetector", true) then return true end
+
+    -- 4. Dialogue / Interaction folders or objects
+    for _, name in ipairs({"Interaction", "Dialog", "Dialogue", "Talk", "Quest", "Shop", "Conversation"}) do
+        if npc:FindFirstChild(name, true) then return true end
+    end
+
+    -- 5. Check BillboardGuis / SurfaceGuis for talk / writ / quest prompts
+    for _, desc in ipairs(npc:GetDescendants()) do
+        if desc:IsA("BillboardGui") or desc:IsA("SurfaceGui") then
+            local descName = desc.Name:lower()
+            if descName:find("dialog") or descName:find("talk") or descName:find("quest") or descName:find("writ") or descName:find("prompt") or descName:find("interact") then
+                return true
+            end
+            for _, label in ipairs(desc:GetDescendants()) do
+                if label:IsA("TextLabel") then
+                    local txt = label.Text:lower()
+                    if txt:find("writ") or txt:find("talk") or txt:find("speak") or txt:find("quest") or txt:find("again every hour") or txt:find("hour") then
+                        return true
+                    end
+                end
+            end
+        end
+    end
+
+    return false
+end
+
 local function applyHitboxToNPC(npc)
-	if not isHitboxExpanded or not npc or not npc:IsA("Model") then return end
+	if not isHitboxExpanded or not npc or not npc:IsA("Model") or isFriendlyOrTalkable(npc) then return end
 
 	local hum = npc:FindFirstChildOfClass("Humanoid")
 	if not hum then return end
@@ -1828,6 +1866,7 @@ end
 
 local function isAlive(npc)
 	if not npc or not npc:IsA("Model") or not npc.Parent or not npc:IsDescendantOf(Workspace) then return false end
+    if isFriendlyOrTalkable(npc) then return false end
 	local hum = npc:FindFirstChildOfClass("Humanoid")
 	if hum then
 		if hum.Health <= 0 or hum:GetState() == Enum.HumanoidStateType.Dead then return false end
@@ -1842,28 +1881,43 @@ local function findBossInNPCs(key, data)
     local targetName = (data.Name or key):lower()
     local keyLower = key:lower()
 
-    -- 1. Check exact or partial name match
+    -- 1. Check exact or substring match
     for _, npc in ipairs(npcsFolder:GetChildren()) do
         if isAlive(npc) then
             local nName = npc.Name:lower()
-            if nName == targetName or nName:find(targetName, 1, true) or nName:find(keyLower, 1, true) then
+            if nName == targetName or nName:find(targetName, 1, true) or targetName:find(nName, 1, true)
+               or nName:find(keyLower, 1, true) or keyLower:find(nName, 1, true) then
                 return npc
             end
         end
     end
 
-    -- 2. If CFrame is known, check proximity to spawn anchor
-    if data.CFrame then
-        local anchorPos = data.CFrame.Position
+    -- 2. Word token match (e.g. "White-Jade Dragon" matches "White-Jade" or "Dragon")
+    local words = {}
+    for w in targetName:gmatch("[%a%d]+") do
+        if #w >= 3 and w ~= "the" and w ~= "boss" then
+            table.insert(words, w)
+        end
+    end
+    for w in keyLower:gmatch("[%a%d]+") do
+        if #w >= 3 and w ~= "the" and w ~= "boss" then
+            table.insert(words, w)
+        end
+    end
+
+    if #words > 0 then
         for _, npc in ipairs(npcsFolder:GetChildren()) do
             if isAlive(npc) then
-                local part = npc:FindFirstChild("HumanoidRootPart") or npc.PrimaryPart or npc:FindFirstChild("Torso")
-                if part and (part.Position - anchorPos).Magnitude <= 120 then
-                    return npc
+                local nName = npc.Name:lower()
+                for _, word in ipairs(words) do
+                    if nName:find(word, 1, true) then
+                        return npc
+                    end
                 end
             end
         end
     end
+
     return nil
 end
 
@@ -1938,6 +1992,13 @@ local function getHighestLevelTarget()
 	for _, isSelected in pairs(selectedNPCNames) do
 		if isSelected then hasSelection = true break end
 	end
+
+    -- If user is running Auto Farm Boss and did not select any regular monsters,
+    -- do not randomly attack NPCs when the boss is dead! Wait for the next boss.
+    if isAutoFarmBoss and not hasSelection then
+        cachedTarget = nil
+        return nil, false, nil
+    end
 
 	if npcsFolder then
 		for _, npc in ipairs(npcsFolder:GetChildren()) do
@@ -2017,6 +2078,7 @@ end
 -- บันทึกพิกัดมอนสเตอร์ + บันทึกรายชื่อ (แก้บัคการข้ามชื่อมอนสเตอร์)
 local function autoSaveNPCPosition(npc)
 	if not npc or not npc:IsA("Model") then return end
+    if isFriendlyOrTalkable(npc) then return end
 	
 	local lvl = getNPCLevel(npc)
 	knownNPCNames[npc.Name] = math.max(knownNPCNames[npc.Name] or 0, lvl)
@@ -2201,7 +2263,10 @@ local function startFarming()
                         end
                         if returnCF then
                             hrp.CFrame = returnCF
+                            startBtn.Text = "วาร์ปกลับจุดฟาร์มมอน..."
                             task.wait(0.35)
+                        elseif isAutoFarmBoss then
+                            startBtn.Text = "รอเกิดบอสรอบถัดไป..."
                         end
 					end
 					task.wait(0.03)
@@ -2261,8 +2326,15 @@ refreshNPCList = function()
 	local npcsFolder = Workspace:FindFirstChild("Murim_NPCs")
 	if npcsFolder then
 		for _, npc in ipairs(npcsFolder:GetChildren()) do
-			applyHitboxToNPC(npc)
-			autoSaveNPCPosition(npc)
+            if isFriendlyOrTalkable(npc) then
+                knownNPCNames[npc.Name] = nil
+                savedNPCPositions[npc.Name] = nil
+                selectedNPCNames[npc.Name] = nil
+                favoriteNPCNames[npc.Name] = nil
+            else
+                applyHitboxToNPC(npc)
+                autoSaveNPCPosition(npc)
+            end
 		end
 	end
 
