@@ -42,7 +42,7 @@ local function finishNotice()
     if notice.Parent then notice:Destroy() end
 end
 
-local source = [====[
+local source = 
 local report, finishNotice = ...
 -- Murim Master Hub: supplied farm GUI + Alchemy / Forge / Cultivation.
 -- Run the entire file once. Minus hides the menu; Destroy removes all systems.
@@ -3453,7 +3453,7 @@ task.spawn(function()
     end
 end)
 
-]====]
+
 
 if type(loadstring) ~= "function" then
     report("ตัวรันนี้ไม่มี loadstring จึงโหลดชุดรวมไม่ได้", true)
