@@ -154,26 +154,43 @@ local function checkIsBossName(name)
     return false
 end
 
+local bossEntityCache = setmetatable({}, { __mode = "k" })
 local function checkIsBoss(npc)
     if not npc or not npc:IsA("Model") then return false, nil end
+    local cached = bossEntityCache[npc]
+    if cached ~= nil then
+        if cached == false then return false, nil end
+        return true, cached
+    end
     local name = npc.Name
     if checkIsBossName(name) then
-        return true, resolveBossKey(name) or name
+        local k = resolveBossKey(name) or name
+        bossEntityCache[npc] = k
+        return true, k
     end
     if npc:FindFirstChild("BossTimer", true) then
+        bossEntityCache[npc] = name
         return true, name
     end
+    bossEntityCache[npc] = false
     return false, nil
 end
 
+local npcLevelCache = setmetatable({}, { __mode = "k" })
 local function getNPCLevel(npc)
 	if not npc then return 0 end
+    local cachedLvl = npcLevelCache[npc]
+    if cachedLvl ~= nil then return cachedLvl end
 
 	local attrLevel = npc:GetAttribute("Level") or npc:GetAttribute("Lv") or npc:GetAttribute("LevelValue")
-	if typeof(attrLevel) == "number" then return attrLevel end
+	if typeof(attrLevel) == "number" then
+        npcLevelCache[npc] = attrLevel
+        return attrLevel
+    end
 
 	local levelVal = npc:FindFirstChild("Level") or npc:FindFirstChild("Lv") or npc:FindFirstChild("LevelValue")
 	if levelVal and (levelVal:IsA("IntValue") or levelVal:IsA("NumberValue")) then
+        npcLevelCache[npc] = levelVal.Value
 		return levelVal.Value
 	end
 
@@ -181,31 +198,56 @@ local function getNPCLevel(npc)
 	if statsFolder then
 		local lvl = statsFolder:FindFirstChild("Level") or statsFolder:FindFirstChild("Lv")
 		if lvl and (lvl:IsA("IntValue") or lvl:IsA("NumberValue")) then
+            npcLevelCache[npc] = lvl.Value
 			return lvl.Value
 		end
 	end
 
 	local match = npc.Name:match("%d+")
-	if match then return tonumber(match) end
+	if match then
+        local num = tonumber(match)
+        npcLevelCache[npc] = num
+        return num
+    end
+    npcLevelCache[npc] = 0
 	return 0
 end
 
+local friendlyCache = setmetatable({}, { __mode = "k" })
 local function isFriendlyOrTalkable(npc)
     if not npc or not npc:IsA("Model") then return true end
-    if checkIsBoss(npc) then return false end
+    local cached = friendlyCache[npc]
+    if cached ~= nil then return cached end
+
+    if checkIsBoss(npc) then
+        friendlyCache[npc] = false
+        return false
+    end
 
     -- 1. ProximityPrompt check (interactive dialogue/quest NPCs have prompts)
-    if npc:FindFirstChildWhichIsA("ProximityPrompt", true) then return true end
+    if npc:FindFirstChildWhichIsA("ProximityPrompt", true) then
+        friendlyCache[npc] = true
+        return true
+    end
 
     -- 2. Dialog / DialogChoice objects
-    if npc:FindFirstChildWhichIsA("Dialog", true) or npc:FindFirstChildWhichIsA("DialogChoice", true) then return true end
+    if npc:FindFirstChildWhichIsA("Dialog", true) or npc:FindFirstChildWhichIsA("DialogChoice", true) then
+        friendlyCache[npc] = true
+        return true
+    end
 
     -- 3. ClickDetector
-    if npc:FindFirstChildWhichIsA("ClickDetector", true) then return true end
+    if npc:FindFirstChildWhichIsA("ClickDetector", true) then
+        friendlyCache[npc] = true
+        return true
+    end
 
     -- 4. Dialogue / Interaction folders or objects
     for _, name in ipairs({"Interaction", "Dialog", "Dialogue", "Talk", "Quest", "Shop", "Conversation"}) do
-        if npc:FindFirstChild(name, true) then return true end
+        if npc:FindFirstChild(name, true) then
+            friendlyCache[npc] = true
+            return true
+        end
     end
 
     -- 5. Check BillboardGuis / SurfaceGuis for talk / writ / quest prompts
@@ -213,12 +255,14 @@ local function isFriendlyOrTalkable(npc)
         if desc:IsA("BillboardGui") or desc:IsA("SurfaceGui") then
             local descName = desc.Name:lower()
             if descName:find("dialog") or descName:find("talk") or descName:find("quest") or descName:find("writ") or descName:find("prompt") or descName:find("interact") then
+                friendlyCache[npc] = true
                 return true
             end
             for _, label in ipairs(desc:GetDescendants()) do
                 if label:IsA("TextLabel") then
                     local txt = label.Text:lower()
                     if txt:find("writ") or txt:find("talk") or txt:find("speak") or txt:find("quest") or txt:find("again every hour") or txt:find("hour") then
+                        friendlyCache[npc] = true
                         return true
                     end
                 end
@@ -226,6 +270,7 @@ local function isFriendlyOrTalkable(npc)
         end
     end
 
+    friendlyCache[npc] = false
     return false
 end
 
@@ -326,19 +371,28 @@ local function isBossKey(id)
     return ok and res or false
 end
 
+local chestCache = setmetatable({}, { __mode = "k" })
 local function isChest(obj)
     if not obj then return false end
+    local cached = chestCache[obj]
+    if cached ~= nil then return cached end
+
     local name = obj.Name:lower()
-    if name:find("chest") then return true end
+    if name:find("chest") then
+        chestCache[obj] = true
+        return true
+    end
     for _, prompt in ipairs(obj:GetDescendants()) do
         if prompt:IsA("ProximityPrompt") then
             local action = (prompt.ActionText or ""):lower()
             local objText = (prompt.ObjectText or ""):lower()
             if action:find("open") or objText:find("chest") or prompt.Name:lower():find("chest") then
+                chestCache[obj] = true
                 return true
             end
         end
     end
+    chestCache[obj] = false
     return false
 end
 
@@ -1193,28 +1247,40 @@ updateBossTimers = function()
 
         if selectBtn and valLabel then
             local lvlStr = (data.Level and data.Level > 0) and string.format(" [Lv.%d]", data.Level) or ""
-            selectBtn.Text = (isSelected and "[✓] " or "[ ] ") .. (data.Name or key) .. lvlStr
-            valLabel.Text = data.TimeText or "🔥 บอสเกิดแล้ว!"
+            local newSelTxt = (isSelected and "[✓] " or "[ ] ") .. (data.Name or key) .. lvlStr
+            if selectBtn.Text ~= newSelTxt then selectBtn.Text = newSelTxt end
+            local newTimeTxt = data.TimeText or "🔥 บอสเกิดแล้ว!"
+            if valLabel.Text ~= newTimeTxt then valLabel.Text = newTimeTxt end
 
             if isSpawned then
-                valLabel.TextColor3 = Color3.fromRGB(255, 80, 80)
-                card.BackgroundColor3 = isSelected and Color3.fromRGB(75, 30, 35) or Color3.fromRGB(55, 25, 30)
+                if valLabel.TextColor3 ~= Color3.fromRGB(255, 80, 80) then
+                    valLabel.TextColor3 = Color3.fromRGB(255, 80, 80)
+                end
+                local targetBg = isSelected and Color3.fromRGB(75, 30, 35) or Color3.fromRGB(55, 25, 30)
+                if card.BackgroundColor3 ~= targetBg then card.BackgroundColor3 = targetBg end
             else
-                valLabel.TextColor3 = Color3.fromRGB(85, 255, 127)
-                card.BackgroundColor3 = isSelected and Color3.fromRGB(30, 60, 45) or Color3.fromRGB(35, 35, 45)
+                if valLabel.TextColor3 ~= Color3.fromRGB(85, 255, 127) then
+                    valLabel.TextColor3 = Color3.fromRGB(85, 255, 127)
+                end
+                local targetBg = isSelected and Color3.fromRGB(30, 60, 45) or Color3.fromRGB(35, 35, 45)
+                if card.BackgroundColor3 ~= targetBg then card.BackgroundColor3 = targetBg end
             end
         end
 
         if tpBtn then
             local hasCF = data.CFrame or savedNPCPositions[key] or (data.Name and savedNPCPositions[data.Name])
             if hasCF then
-                tpBtn.BackgroundColor3 = Color3.fromRGB(0, 140, 240)
-                if tpBtn.Text ~= "✅" and not tpBtn.Text:find("❌") then
+                if tpBtn.BackgroundColor3 ~= Color3.fromRGB(0, 140, 240) then
+                    tpBtn.BackgroundColor3 = Color3.fromRGB(0, 140, 240)
+                end
+                if tpBtn.Text ~= "✅" and not tpBtn.Text:find("❌") and tpBtn.Text ~= "TP" then
                     tpBtn.Text = "TP"
                 end
             else
-                tpBtn.BackgroundColor3 = Color3.fromRGB(70, 70, 85)
-                if tpBtn.Text ~= "✅" and not tpBtn.Text:find("❌") then
+                if tpBtn.BackgroundColor3 ~= Color3.fromRGB(70, 70, 85) then
+                    tpBtn.BackgroundColor3 = Color3.fromRGB(70, 70, 85)
+                end
+                if tpBtn.Text ~= "✅" and not tpBtn.Text:find("❌") and tpBtn.Text ~= "รอพิกัด" then
                     tpBtn.Text = "รอพิกัด"
                 end
             end
@@ -1472,6 +1538,8 @@ autoTabBtn.MouseButton1Click:Connect(function()
     wildQiTabBtn.TextColor3 = Color3.fromRGB(165, 179, 205)
 end)
 
+local scanAllWildQi, refreshQiButtons
+
 wildQiTabBtn.MouseButton1Click:Connect(function()
     autoPage.Visible = false
     wildQiPage.Visible = true
@@ -1479,14 +1547,24 @@ wildQiTabBtn.MouseButton1Click:Connect(function()
     wildQiTabBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
     autoTabBtn.BackgroundColor3 = Color3.fromRGB(35, 42, 58)
     autoTabBtn.TextColor3 = Color3.fromRGB(165, 179, 205)
-    refreshQiButtons()
+    if refreshQiButtons then refreshQiButtons() end
 end)
 
 -- Scanner Logic
-local function scanAllWildQi()
+local lastQiScanTime = 0
+local cachedQiList = {}
+scanAllWildQi = function(force)
+    local now = os.clock()
+    if not force and (now - lastQiScanTime < 0.6) and #cachedQiList > 0 then
+        return cachedQiList
+    end
+    lastQiScanTime = now
     local folder = Workspace:FindFirstChild("Murim_WildQi")
     local qiList = {}
-    if not folder then return qiList end
+    if not folder then
+        cachedQiList = qiList
+        return qiList
+    end
 
     for _, desc in ipairs(folder:GetDescendants()) do
         if desc.Name == "WildQi" or desc.Name:find("WildQi") then
@@ -1514,10 +1592,11 @@ local function scanAllWildQi()
         return a.Grade > b.Grade
     end)
 
+    cachedQiList = qiList
     return qiList
 end
 
-local function refreshQiButtons()
+refreshQiButtons = function()
     if not qiScrollList or not qiScrollList.Parent then return end
     for _, child in ipairs(qiScrollList:GetChildren()) do
         if child:IsA("TextButton") or child:IsA("TextLabel") then
@@ -1823,11 +1902,16 @@ externalConnections[#externalConnections + 1] = RunService.Heartbeat:Connect(fun
 
     if not HongmengConfig.Enabled then return end
     if not boundHongmengRemote or not boundHongmengRemote:IsA("RemoteEvent") then
-        statusHLabel.Text = "รอ Remote Hongmeng"
+        if statusHLabel.Text ~= "รอ Remote Hongmeng" then
+            statusHLabel.Text = "รอ Remote Hongmeng"
+        end
         return
     end
     local t = Workspace:GetServerTimeNow()
-    statusHLabel.Text = hmPhase and ("เฟส " .. hmPhase) or "รอข้อมูลพิธีจากเกม"
+    local newHText = hmPhase and ("เฟส " .. hmPhase) or "รอข้อมูลพิธีจากเกม"
+    if statusHLabel.Text ~= newHText then
+        statusHLabel.Text = newHText
+    end
     if hmPhase == "weave" and hmWeave and t < hmWeave.ends then
         local ring = hmWeave.rings[hmWeave.active]
         if not ring then return end
@@ -2029,6 +2113,9 @@ local function applyHitboxToNPC(npc)
 
 	local hrp = npc:FindFirstChild("HumanoidRootPart") or npc.PrimaryPart or npc:FindFirstChild("Torso")
 	if hrp then
+        if hrp.Size == HITBOX_SIZE and hrp.Transparency == HITBOX_TRANSPARENCY and hrp.CanCollide == false then
+            return
+        end
 		pcall(function()
 			if not originalHitboxes[hrp] then
                 originalHitboxes[hrp] = {
@@ -2036,10 +2123,10 @@ local function applyHitboxToNPC(npc)
                     CanCollide = hrp.CanCollide, Material = hrp.Material,
                 }
             end
-            if hrp.Size ~= HITBOX_SIZE then hrp.Size = HITBOX_SIZE end
-			if hrp.Transparency ~= HITBOX_TRANSPARENCY then hrp.Transparency = HITBOX_TRANSPARENCY end
-			if hrp.CanCollide ~= false then hrp.CanCollide = false end
-			if hrp.Material ~= Enum.Material.ForceField then hrp.Material = Enum.Material.ForceField end
+            hrp.Size = HITBOX_SIZE
+			hrp.Transparency = HITBOX_TRANSPARENCY
+			hrp.CanCollide = false
+			hrp.Material = Enum.Material.ForceField
 		end)
 	end
 end
@@ -2090,12 +2177,7 @@ local function interactWithDrop(dropItem)
 					firetouchinterest(hrp, desc.Parent, 1)
 				end)
 			end
-		end
-	end
-
-	for _, desc in ipairs(descendants) do
-        if destroyed or not isFarming or (hubUI.isBusy and hubUI.isBusy()) then return end
-		if desc:IsA("ProximityPrompt") and desc.Enabled then
+		elseif desc:IsA("ProximityPrompt") and desc.Enabled then
 			if typeof(fireproximityprompt) == "function" then
 				pcall(function() fireproximityprompt(desc) end)
 			elseif VirtualInputManager then
@@ -2423,11 +2505,12 @@ local function startFarming()
 		while isFarming do
             if hubUI.isBusy and hubUI.isBusy() then
                 currentTarget = nil
-                startBtn.Text = "ฟาร์มพัก • มินิเกมทำงาน"
+                if startBtn.Text ~= "ฟาร์มพัก • มินิเกมทำงาน" then
+                    startBtn.Text = "ฟาร์มพัก • มินิเกมทำงาน"
+                end
                 task.wait(0.15)
                 continue
             end
-            startBtn.Text = "กำลังฟาร์ม..."
             local character = player.Character
 			local hrp = character and character:FindFirstChild("HumanoidRootPart")
 
@@ -2441,7 +2524,8 @@ local function startFarming()
                     aliveStatus = true
                     npcObj = bossObj
                     isBoss = true
-                    startBtn.Text = "กำลังตีบอส: " .. tostring(npcObj.Name)
+                    local bTxt = "กำลังตีบอส: " .. tostring(npcObj.Name)
+                    if startBtn.Text ~= bTxt then startBtn.Text = bTxt end
                 elseif bossCF and not bossAlive then
                     -- Boss is spawned, teleport to its anchor position so client streams it in!
                     activeBossProbeCount = (activeBossProbeCount or 0) + 1
@@ -2454,11 +2538,12 @@ local function startFarming()
                         activeBossProbeCount = 0
                     else
                         hrp.CFrame = bossCF * CFrame.new(0, 4, 0)
-                        startBtn.Text = "วาร์ปหาบอส..."
+                        if startBtn.Text ~= "วาร์ปหาบอส..." then startBtn.Text = "วาร์ปหาบอส..." end
                         task.wait(0.25)
                         continue
                     end
                 else
+                    if startBtn.Text ~= "กำลังฟาร์ม..." then startBtn.Text = "กำลังฟาร์ม..." end
                     targetCF, aliveStatus, npcObj = getHighestLevelTarget()
                 end
 
@@ -2531,10 +2616,14 @@ local function startFarming()
                         end
                         if returnCF then
                             hrp.CFrame = returnCF
-                            startBtn.Text = "วาร์ปกลับจุดฟาร์มมอน..."
+                            if startBtn.Text ~= "วาร์ปกลับจุดฟาร์มมอน..." then
+                                startBtn.Text = "วาร์ปกลับจุดฟาร์มมอน..."
+                            end
                             task.wait(0.35)
                         elseif isAutoFarmBoss then
-                            startBtn.Text = "รอเกิดบอสรอบถัดไป..."
+                            if startBtn.Text ~= "รอเกิดบอสรอบถัดไป..." then
+                                startBtn.Text = "รอเกิดบอสรอบถัดไป..."
+                            end
                         end
 					end
 					task.wait(0.03)
@@ -2684,8 +2773,6 @@ refreshNPCList = function()
 			end
 		end)
 	end
-
-	refreshTPButtons()
 end
 
 local function bindFolderEvents()
@@ -2694,7 +2781,7 @@ local function bindFolderEvents()
     targetScanAt = 0
     local folder = Workspace:FindFirstChild("Murim_NPCs")
     if not folder then return end
-    folderConnections[#folderConnections + 1] = folder.DescendantAdded:Connect(function()
+    folderConnections[#folderConnections + 1] = folder.ChildAdded:Connect(function()
         targetScanAt = 0
         queueRefresh()
     end)
@@ -2741,58 +2828,65 @@ local function executeParry()
     end)
 end
 
-local function checkAttacker(enemy)
+local function checkAttacker(enemy, myPos, myHrp)
     if not isAutoParry or isParrying or not enemy or enemy == player.Character then return end
-    local char = player.Character
-    local myHrp = char and char:FindFirstChild("HumanoidRootPart")
-    local enemyHrp = enemy:FindFirstChild("HumanoidRootPart") or enemy.PrimaryPart or enemy:FindFirstChild("Torso")
-    if not myHrp or not enemyHrp then return end
-
-    local dist = (myHrp.Position - enemyHrp.Position).Magnitude
-    if dist > PARRY_DISTANCE then return end
-
     local act = enemy:GetAttribute("Act")
+    if not act then return end
+
     local actT = enemy:GetAttribute("ActT")
     local actW = enemy:GetAttribute("ActW")
+    if type(actT) ~= "number" or type(actW) ~= "number" or actW <= 0 then return end
 
-    if act and type(actT) == "number" and type(actW) == "number" and actW > 0 then
-        local attackId = tostring(act) .. "_" .. tostring(actT)
-        if handledAttacks[enemy] == attackId then return end
+    local enemyHrp = enemy:FindFirstChild("HumanoidRootPart") or enemy.PrimaryPart or enemy:FindFirstChild("Torso")
+    if not enemyHrp then return end
 
-        local serverNow = Workspace:GetServerTimeNow()
-        local hitTime = actT + actW
-        local timeRemaining = hitTime - serverNow
+    local ep = enemyHrp.Position
+    if math.abs(myPos.X - ep.X) > PARRY_DISTANCE or math.abs(myPos.Z - ep.Z) > PARRY_DISTANCE then return end
 
-        if timeRemaining > 0 and timeRemaining <= (actW + 0.1) then
-            handledAttacks[enemy] = attackId
-            local delayTime = math.max(0, timeRemaining - PARRY_LEAD)
-            if delayTime <= 0.02 then
-                executeParry()
-            else
-                task.delay(delayTime, function()
-                    if not destroyed and isAutoParry and enemy and enemy.Parent and myHrp.Parent then
-                        local currentDist = (myHrp.Position - enemyHrp.Position).Magnitude
-                        if currentDist <= PARRY_DISTANCE then
-                            executeParry()
-                        end
+    local dist = (myPos - ep).Magnitude
+    if dist > PARRY_DISTANCE then return end
+
+    local attackId = tostring(act) .. "_" .. tostring(actT)
+    if handledAttacks[enemy] == attackId then return end
+
+    local serverNow = Workspace:GetServerTimeNow()
+    local hitTime = actT + actW
+    local timeRemaining = hitTime - serverNow
+
+    if timeRemaining > 0 and timeRemaining <= (actW + 0.1) then
+        handledAttacks[enemy] = attackId
+        local delayTime = math.max(0, timeRemaining - PARRY_LEAD)
+        if delayTime <= 0.02 then
+            executeParry()
+        else
+            task.delay(delayTime, function()
+                if not destroyed and isAutoParry and enemy and enemy.Parent and myHrp.Parent then
+                    local currentDist = (myHrp.Position - enemyHrp.Position).Magnitude
+                    if currentDist <= PARRY_DISTANCE then
+                        executeParry()
                     end
-                end)
-            end
+                end
+            end)
         end
     end
 end
 
 externalConnections[#externalConnections + 1] = RunService.Heartbeat:Connect(function()
     if destroyed or not isAutoParry or isParrying or (hubUI.isBusy and hubUI.isBusy()) then return end
+    local char = player.Character
+    local myHrp = char and char:FindFirstChild("HumanoidRootPart")
+    if not myHrp then return end
+    local myPos = myHrp.Position
+
     local npcsFolder = Workspace:FindFirstChild("Murim_NPCs")
     if npcsFolder then
         for _, npc in ipairs(npcsFolder:GetChildren()) do
-            checkAttacker(npc)
+            checkAttacker(npc, myPos, myHrp)
         end
     end
     for _, otherPlayer in ipairs(Players:GetPlayers()) do
         if otherPlayer ~= player and otherPlayer.Character then
-            checkAttacker(otherPlayer.Character)
+            checkAttacker(otherPlayer.Character, myPos, myHrp)
         end
     end
 end)
@@ -3126,8 +3220,10 @@ connect(RunService.Heartbeat, function()
     if closed then return end
     local motes = getMotes(true)
     if not motes then
-        skipped.Text = "เลขที่ข้าม: -"
-        status.Text = enabled and "สถานะ: รอมินิเกม" or "สถานะ: หยุด"
+        local tSkip = "เลขที่ข้าม: -"
+        local tStat = enabled and "สถานะ: รอมินิเกม" or "สถานะ: หยุด"
+        if skipped.Text ~= tSkip then skipped.Text = tSkip end
+        if status.Text ~= tStat then status.Text = tStat end
         return
     end
     local entries, skipIds = {}, {}
@@ -3165,15 +3261,22 @@ connect(RunService.Heartbeat, function()
         if index > 20 then display[#display + 1] = "…"; break end
         display[#display + 1] = tostring(id)
     end
-    skipped.Text = "เลขที่ข้าม: " .. (#display > 0 and table.concat(display, ", ") or "-")
-    status.Text = enabled and (unknownCount > 0 and ("ทำงาน • สีไม่ตรงเงื่อนไข " .. unknownCount .. " จุด") or "สถานะ: Auto ทำงาน") or "สถานะ: หยุด • ตรวจเลขอย่างเดียว"
-    lastLabel.Text = "ส่งล่าสุด: " .. (lastId and ("Mote" .. lastId) or "-")
+    local newSkip = "เลขที่ข้าม: " .. (#display > 0 and table.concat(display, ", ") or "-")
+    if skipped.Text ~= newSkip then skipped.Text = newSkip end
+    local newStat = enabled and (unknownCount > 0 and ("ทำงาน • สีไม่ตรงเงื่อนไข " .. unknownCount .. " จุด") or "สถานะ: Auto ทำงาน") or "สถานะ: หยุด • ตรวจเลขอย่างเดียว"
+    if status.Text ~= newStat then status.Text = newStat end
+    local newLast = "ส่งล่าสุด: " .. (lastId and ("Mote" .. lastId) or "-")
+    if lastLabel.Text ~= newLast then lastLabel.Text = newLast end
     updateCounter()
 end)
 
 connect(RunService.Heartbeat, function()
     if closed or not forgeEnabled then return end
-    if not enabled then forgeStatus.Text = "Forge: พักอยู่ กรุณาเปิด Auto กด"; return end
+    if not enabled then
+        local tFStat = "Forge: พักอยู่ กรุณาเปิด Auto กด"
+        if forgeStatus.Text ~= tFStat then forgeStatus.Text = tFStat end
+        return
+    end
     if forgeBusy then return end
     if awaitingGame then
         if os.clock() - awaitingSince > 10 then stopForge("Forge: ไม่ได้รับสัญญาณเริ่มเกม หยุดส่งซ้ำ") end
@@ -3181,7 +3284,8 @@ connect(RunService.Heartbeat, function()
     end
     if gameActive or gameIsVisible() or os.clock() < nextForgeAt then return end
     if cultivationPhase or alchemyBusy or alchemyPending or alchemyActive or generalMinigameActive then
-        forgeStatus.Text = "Forge: รอมินิเกมอื่นจบ"
+        local tFStat = "Forge: รอมินิเกมอื่นจบ"
+        if forgeStatus.Text ~= tFStat then forgeStatus.Text = tFStat end
         return
     end
     forgeBusy, awaitingGame = true, true
@@ -3444,7 +3548,11 @@ connect(RunService.Heartbeat, function()
         return
     end
     if not alchemyAuto or alchemyBusy or alchemyPending then return end
-    if not alchemyHit then alchemyStatus.Text = "พักอยู่ • เปิด Auto กดจังหวะเพื่อทำต่อ"; return end
+    if not alchemyHit then
+        local tAStat = "พักอยู่ • เปิด Auto กดจังหวะเพื่อทำต่อ"
+        if alchemyStatus.Text ~= tAStat then alchemyStatus.Text = tAStat end
+        return
+    end
     if os.clock() >= alchemyNextAt then requestMix() end
 end)
 
