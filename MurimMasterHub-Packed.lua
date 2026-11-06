@@ -166,6 +166,80 @@ local function checkIsBoss(npc)
     return false, nil
 end
 
+local function getNPCLevel(npc)
+	if not npc then return 0 end
+
+	local attrLevel = npc:GetAttribute("Level") or npc:GetAttribute("Lv") or npc:GetAttribute("LevelValue")
+	if typeof(attrLevel) == "number" then return attrLevel end
+
+	local levelVal = npc:FindFirstChild("Level") or npc:FindFirstChild("Lv") or npc:FindFirstChild("LevelValue")
+	if levelVal and (levelVal:IsA("IntValue") or levelVal:IsA("NumberValue")) then
+		return levelVal.Value
+	end
+
+	local statsFolder = npc:FindFirstChild("Stats") or npc:FindFirstChild("Configuration") or npc:FindFirstChild("Data")
+	if statsFolder then
+		local lvl = statsFolder:FindFirstChild("Level") or statsFolder:FindFirstChild("Lv")
+		if lvl and (lvl:IsA("IntValue") or lvl:IsA("NumberValue")) then
+			return lvl.Value
+		end
+	end
+
+	local match = npc.Name:match("%d+")
+	if match then return tonumber(match) end
+	return 0
+end
+
+local function isFriendlyOrTalkable(npc)
+    if not npc or not npc:IsA("Model") then return true end
+    if checkIsBoss(npc) then return false end
+
+    -- 1. ProximityPrompt check (interactive dialogue/quest NPCs have prompts)
+    if npc:FindFirstChildWhichIsA("ProximityPrompt", true) then return true end
+
+    -- 2. Dialog / DialogChoice objects
+    if npc:FindFirstChildWhichIsA("Dialog", true) or npc:FindFirstChildWhichIsA("DialogChoice", true) then return true end
+
+    -- 3. ClickDetector
+    if npc:FindFirstChildWhichIsA("ClickDetector", true) then return true end
+
+    -- 4. Dialogue / Interaction folders or objects
+    for _, name in ipairs({"Interaction", "Dialog", "Dialogue", "Talk", "Quest", "Shop", "Conversation"}) do
+        if npc:FindFirstChild(name, true) then return true end
+    end
+
+    -- 5. Check BillboardGuis / SurfaceGuis for talk / writ / quest prompts
+    for _, desc in ipairs(npc:GetDescendants()) do
+        if desc:IsA("BillboardGui") or desc:IsA("SurfaceGui") then
+            local descName = desc.Name:lower()
+            if descName:find("dialog") or descName:find("talk") or descName:find("quest") or descName:find("writ") or descName:find("prompt") or descName:find("interact") then
+                return true
+            end
+            for _, label in ipairs(desc:GetDescendants()) do
+                if label:IsA("TextLabel") then
+                    local txt = label.Text:lower()
+                    if txt:find("writ") or txt:find("talk") or txt:find("speak") or txt:find("quest") or txt:find("again every hour") or txt:find("hour") then
+                        return true
+                    end
+                end
+            end
+        end
+    end
+
+    return false
+end
+
+local function isAlive(npc)
+	if not npc or not npc:IsA("Model") or not npc.Parent or not npc:IsDescendantOf(Workspace) then return false end
+    if isFriendlyOrTalkable(npc) then return false end
+	local hum = npc:FindFirstChildOfClass("Humanoid")
+	if hum then
+		if hum.Health <= 0 or hum:GetState() == Enum.HumanoidStateType.Dead then return false end
+	end
+	local targetPart = npc:FindFirstChild("HumanoidRootPart") or npc.PrimaryPart or npc:FindFirstChild("Torso")
+	return targetPart ~= nil
+end
+
 -- Pre-seed bossCache so Boss tab is NEVER blank!
 for _, info in ipairs(KNOWN_BOSSES) do
     bossCache[info.Key] = {
@@ -1946,44 +2020,6 @@ local function restoreHitboxes()
     end
 end
 
-local function isFriendlyOrTalkable(npc)
-    if not npc or not npc:IsA("Model") then return true end
-    if checkIsBoss(npc) then return false end
-
-    -- 1. ProximityPrompt check (interactive dialogue/quest NPCs have prompts)
-    if npc:FindFirstChildWhichIsA("ProximityPrompt", true) then return true end
-
-    -- 2. Dialog / DialogChoice objects
-    if npc:FindFirstChildWhichIsA("Dialog", true) or npc:FindFirstChildWhichIsA("DialogChoice", true) then return true end
-
-    -- 3. ClickDetector
-    if npc:FindFirstChildWhichIsA("ClickDetector", true) then return true end
-
-    -- 4. Dialogue / Interaction folders or objects
-    for _, name in ipairs({"Interaction", "Dialog", "Dialogue", "Talk", "Quest", "Shop", "Conversation"}) do
-        if npc:FindFirstChild(name, true) then return true end
-    end
-
-    -- 5. Check BillboardGuis / SurfaceGuis for talk / writ / quest prompts
-    for _, desc in ipairs(npc:GetDescendants()) do
-        if desc:IsA("BillboardGui") or desc:IsA("SurfaceGui") then
-            local descName = desc.Name:lower()
-            if descName:find("dialog") or descName:find("talk") or descName:find("quest") or descName:find("writ") or descName:find("prompt") or descName:find("interact") then
-                return true
-            end
-            for _, label in ipairs(desc:GetDescendants()) do
-                if label:IsA("TextLabel") then
-                    local txt = label.Text:lower()
-                    if txt:find("writ") or txt:find("talk") or txt:find("speak") or txt:find("quest") or txt:find("again every hour") or txt:find("hour") then
-                        return true
-                    end
-                end
-            end
-        end
-    end
-
-    return false
-end
 
 local function applyHitboxToNPC(npc)
 	if not isHitboxExpanded or not npc or not npc:IsA("Model") or isFriendlyOrTalkable(npc) then return end
@@ -2015,30 +2051,6 @@ local function updateAllHitboxes()
 	for _, npc in ipairs(npcsFolder:GetChildren()) do
 		applyHitboxToNPC(npc)
 	end
-end
-
-local function getNPCLevel(npc)
-	if not npc then return 0 end
-
-	local attrLevel = npc:GetAttribute("Level") or npc:GetAttribute("Lv") or npc:GetAttribute("LevelValue")
-	if typeof(attrLevel) == "number" then return attrLevel end
-
-	local levelVal = npc:FindFirstChild("Level") or npc:FindFirstChild("Lv") or npc:FindFirstChild("LevelValue")
-	if levelVal and (levelVal:IsA("IntValue") or levelVal:IsA("NumberValue")) then
-		return levelVal.Value
-	end
-
-	local statsFolder = npc:FindFirstChild("Stats") or npc:FindFirstChild("Configuration") or npc:FindFirstChild("Data")
-	if statsFolder then
-		local lvl = statsFolder:FindFirstChild("Level") or statsFolder:FindFirstChild("Lv")
-		if lvl and (lvl:IsA("IntValue") or lvl:IsA("NumberValue")) then
-			return lvl.Value
-		end
-	end
-
-	local match = npc.Name:match("%d+")
-	if match then return tonumber(match) end
-	return 0
 end
 
 local function interactWithDrop(dropItem)
@@ -2098,17 +2110,6 @@ local function interactWithDrop(dropItem)
 			task.wait(0.05)
 		end
 	end
-end
-
-local function isAlive(npc)
-	if not npc or not npc:IsA("Model") or not npc.Parent or not npc:IsDescendantOf(Workspace) then return false end
-    if isFriendlyOrTalkable(npc) then return false end
-	local hum = npc:FindFirstChildOfClass("Humanoid")
-	if hum then
-		if hum.Health <= 0 or hum:GetState() == Enum.HumanoidStateType.Dead then return false end
-	end
-	local targetPart = npc:FindFirstChild("HumanoidRootPart") or npc.PrimaryPart or npc:FindFirstChild("Torso")
-	return targetPart ~= nil
 end
 
 local function findBossInNPCs(key, data)
