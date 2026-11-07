@@ -89,6 +89,8 @@ local selectedBossNames = {} -- รายชื่อบอสที่เลื
 local bossCache = {}         -- [Key] = { Name, CFrame, TimeText, InFolder, Key, Level }
 local activeBossTarget = nil
 local bossProbeAt = {}
+local lastBossCFrame = nil
+local bossLootWaitUntil = 0
 local updateBossTimers = nil
 
 local KNOWN_BOSSES = {
@@ -359,6 +361,7 @@ local RARITY_MAP = {
 }
 
 local openedChests = setmetatable({}, { __mode = "k" })
+local chestAttempts = setmetatable({}, { __mode = "k" })
 
 local function isBossKey(id)
     if not murimBossKeys or type(id) ~= "string" then return false end
@@ -2150,13 +2153,9 @@ local function interactWithDrop(dropItem)
 	local targetPart = dropItem:IsA("BasePart") and dropItem or (dropItem:IsA("Model") and dropItem.PrimaryPart) or dropItem:FindFirstChildWhichIsA("BasePart", true)
 	if not targetPart then return end
 
-	hrp.CFrame = targetPart.CFrame
+	hrp.CFrame = targetPart.CFrame * CFrame.new(0, 2, 0)
 	task.wait(0.05)
     if destroyed or not isFarming or not dropItem.Parent or (hubUI.isBusy and hubUI.isBusy()) then return end
-
-    if isChest(dropItem) then
-        openedChests[dropItem] = os.clock() + 10
-    end
 
     if typeof(firetouchinterest) == "function" then
         pcall(function()
@@ -2167,6 +2166,7 @@ local function interactWithDrop(dropItem)
     end
 
     local descendants = dropItem:GetDescendants()
+    local hadPrompt = false
 	for _, desc in ipairs(descendants) do
         if destroyed or not isFarming or (hubUI.isBusy and hubUI.isBusy()) then return end
 		if desc:IsA("TouchTransmitter") or desc.Name == "TouchInterest" then
@@ -2178,20 +2178,27 @@ local function interactWithDrop(dropItem)
 				end)
 			end
 		elseif desc:IsA("ProximityPrompt") and desc.Enabled then
+            hadPrompt = true
 			if typeof(fireproximityprompt) == "function" then
 				pcall(function() fireproximityprompt(desc) end)
 			elseif VirtualInputManager then
 				local holdTime = desc.HoldDuration or 0
 				VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.E, false, game)
-				task.wait(holdTime + 0.05)
+				task.wait(holdTime + 0.1)
 				VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.E, false, game)
 			end
-            if isChest(dropItem) then
-                openedChests[dropItem] = os.clock() + 10
-            end
-			task.wait(0.05)
+			task.wait(0.1)
 		end
 	end
+
+    if isChest(dropItem) then
+        chestAttempts[dropItem] = (chestAttempts[dropItem] or 0) + 1
+        if not hadPrompt or chestAttempts[dropItem] >= 4 then
+            openedChests[dropItem] = os.clock() + 20
+        else
+            openedChests[dropItem] = os.clock() + 1.2
+        end
+    end
 end
 
 local function findBossInNPCs(key, data)
@@ -2254,6 +2261,52 @@ local function findBossInNPCs(key, data)
     return nil
 end
 
+local function getBossChest()
+    local searchContainers = {}
+    local dropsFolder = Workspace:FindFirstChild("Murim_Drops")
+    if dropsFolder then searchContainers[#searchContainers + 1] = dropsFolder end
+    for _, name in ipairs({"Murim_Chests", "Chests", "Drops", "Debris"}) do
+        local f = Workspace:FindFirstChild(name)
+        if f then searchContainers[#searchContainers + 1] = f end
+    end
+    searchContainers[#searchContainers + 1] = Workspace
+
+    local bossDeathPos = lastBossCFrame and lastBossCFrame.Position
+
+    for _, container in ipairs(searchContainers) do
+        for _, obj in ipairs(container:GetChildren()) do
+            if obj and obj.Parent then
+                local objName = obj.Name
+                local isBossNamed = (objName == "LootChest_Boss")
+                    or (objName:find("LootChest_Boss", 1, true) ~= nil)
+                    or (objName:find("BossChest", 1, true) ~= nil)
+                    or (objName:find("LootChest", 1, true) ~= nil and objName:find("Boss", 1, true) ~= nil)
+                    or (objName:find("Chest", 1, true) ~= nil and objName:find("Boss", 1, true) ~= nil)
+
+                local part = obj:IsA("BasePart") and obj
+                    or (obj:IsA("Model") and (obj.PrimaryPart or obj:FindFirstChildWhichIsA("BasePart", true)))
+
+                local isNearBoss = false
+                if part and bossDeathPos and isChest(obj) then
+                    local dist = (part.Position - bossDeathPos).Magnitude
+                    if dist <= 120 then
+                        isNearBoss = true
+                    end
+                end
+
+                if (isBossNamed or isNearBoss) and part then
+                    local cooldown = openedChests[obj]
+                    if not cooldown or os.clock() >= cooldown then
+                        local prompt = obj:FindFirstChildWhichIsA("ProximityPrompt", true)
+                        return obj, part, prompt
+                    end
+                end
+            end
+        end
+    end
+    return nil, nil, nil
+end
+
 local activeBossProbeCount = 0
 local function chooseBossTarget()
     if not isAutoFarmBoss then return nil, false, nil end
@@ -2267,11 +2320,15 @@ local function chooseBossTarget()
             if npc and isAlive(npc) then
                 local part = npc:FindFirstChild("HumanoidRootPart") or npc.PrimaryPart or npc:FindFirstChild("Torso")
                 if part then
+                    lastBossCFrame = part.CFrame
                     return part.CFrame, true, npc
                 end
             end
         end
         -- Boss died or despawned!
+        if lastBossCFrame then
+            bossLootWaitUntil = os.clock() + 6.0
+        end
         activeBossTarget = nil
         cachedTarget = nil
         targetScanAt = 0
@@ -2445,6 +2502,8 @@ end
 local function stopAll()
     activeBossTarget = nil
     activeBossProbeCount = 0
+    lastBossCFrame = nil
+    bossLootWaitUntil = 0
 	isFarming = false
     currentTarget = nil
     cachedTarget = nil
@@ -2543,11 +2602,34 @@ local function startFarming()
                         continue
                     end
                 else
+                    -- Check Boss Chest FIRST before targeting normal monsters!
+                    local bossChestObj, bossChestPart = getBossChest()
+                    if isAutoLooting and bossChestObj and bossChestPart then
+                        currentTarget = nil
+                        local bTxt = "🎁 เปิดกล่องบอส: " .. tostring(bossChestObj.Name)
+                        if startBtn.Text ~= bTxt then startBtn.Text = bTxt end
+                        interactWithDrop(bossChestObj)
+                        task.wait(0.1)
+                        continue
+                    end
+
+                    -- Check if we recently killed a boss and are waiting for the boss chest to spawn
+                    if isAutoLooting and os.clock() < bossLootWaitUntil and lastBossCFrame then
+                        currentTarget = nil
+                        if startBtn.Text ~= "⏳ รอกล่องบอสเกิด..." then
+                            startBtn.Text = "⏳ รอกล่องบอสเกิด..."
+                        end
+                        hrp.CFrame = lastBossCFrame * CFrame.new(0, 3, 0)
+                        task.wait(0.25)
+                        continue
+                    end
+
                     if startBtn.Text ~= "กำลังฟาร์ม..." then startBtn.Text = "กำลังฟาร์ม..." end
                     targetCF, aliveStatus, npcObj = getHighestLevelTarget()
                 end
 
-                local favoriteReady = isBoss or (aliveStatus and npcObj and favoriteNPCNames[npcObj.Name])
+                local isNearBossLoot = lastBossCFrame and os.clock() < (bossLootWaitUntil + 5.0)
+                local favoriteReady = isBoss or (not isNearBossLoot and aliveStatus and npcObj and favoriteNPCNames[npcObj.Name])
                 local dropsFolder = Workspace:FindFirstChild("Murim_Drops")
 				local validDrop = nil
 				
