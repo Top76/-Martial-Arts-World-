@@ -313,11 +313,37 @@ end
 
 local HALLOW_GATE_CFRAME = CFrame.new(17958, 2, 2058)
 local HALLOW_FOE_KEYWORDS = {
-    "jiangshi", "driver", "effigy", "tailor", "hungry", "lure", "cerberus", "matriarch", "hg_"
+    "jiangshi", "driver", "effigy", "hg_tailor", "hungry", "lure", "cerberus", "matriarch", "hg_"
 }
 local HALLOW_IGNORE_KEYWORDS = {
-    "watchman", "sedan", "faceless", "coffin"
+    "watchman", "sedan", "faceless", "coffin", "gu heng", "tailor gu heng"
 }
+
+local function findGuestLedger()
+    for _, desc in ipairs(Workspace:GetDescendants()) do
+        if desc:IsA("ProximityPrompt") and desc.Enabled then
+            local act = (desc.ActionText or ""):lower()
+            local obj = (desc.ObjectText or ""):lower()
+            if obj:find("ledger") or act:find("ledger") or obj:find("guest") or act:find("guest") then
+                local pPart = desc.Parent:IsA("BasePart") and desc.Parent or (desc.Parent and desc.Parent:FindFirstChildWhichIsA("BasePart", true))
+                if pPart then
+                    return desc, pPart
+                end
+            end
+        end
+    end
+    for _, desc in ipairs(Workspace:GetDescendants()) do
+        local n = desc.Name:lower()
+        if n:find("guest") and n:find("ledger") then
+            local p = desc:IsA("BasePart") and desc or (desc:IsA("Model") and (desc.PrimaryPart or desc:FindFirstChildWhichIsA("BasePart", true)))
+            if p then
+                local prompt = desc:FindFirstChildWhichIsA("ProximityPrompt", true)
+                return prompt, p
+            end
+        end
+    end
+    return nil, nil
+end
 
 isHallowFoe = function(npc)
     if not npc or not npc:IsA("Model") or not npc.Parent then return false end
@@ -2206,7 +2232,7 @@ tpHallowGateBtn.Font = Enum.Font.SourceSansBold
 tpHallowGateBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 tpHallowGateBtn.TextSize = 13
 tpHallowGateBtn.BackgroundColor3 = Color3.fromRGB(110, 60, 150)
-tpHallowGateBtn.Text = "⚡ วาร์ปไปหน้าประตู (Sunken Waystation)"
+tpHallowGateBtn.Text = "⚡ วาร์ปไปแท่นสมุดลงชื่อ (Guest Ledger)"
 Instance.new("UICorner", tpHallowGateBtn).CornerRadius = UDim.new(0, 6)
 placeButton(tpHallowGateBtn, hallowBody, 0, 12, 184, 1, -24)
 
@@ -2215,11 +2241,21 @@ tpHallowGateBtn.MouseButton1Click:Connect(function()
     local char = player.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
     if hrp then
-        hrp.CFrame = HALLOW_GATE_CFRAME
+        local _, ledgerPart = findGuestLedger()
+        if ledgerPart then
+            hrp.CFrame = ledgerPart.CFrame * CFrame.new(0, 2, -4) * CFrame.Angles(0, math.rad(180), 0)
+        else
+            hrp.CFrame = HALLOW_GATE_CFRAME
+            task.wait(0.4)
+            local _, lp2 = findGuestLedger()
+            if lp2 then
+                hrp.CFrame = lp2.CFrame * CFrame.new(0, 2, -4) * CFrame.Angles(0, math.rad(180), 0)
+            end
+        end
         tpHallowGateBtn.Text = "⚡ วาร์ปสำเร็จ!"
         task.wait(1)
         if not destroyed and tpHallowGateBtn.Parent then
-            tpHallowGateBtn.Text = "⚡ วาร์ปไปหน้าประตู (Sunken Waystation)"
+            tpHallowGateBtn.Text = "⚡ วาร์ปไปแท่นสมุดลงชื่อ (Guest Ledger)"
         end
     end
 end)
@@ -3377,81 +3413,84 @@ local hallowRaidTask = task.spawn(function()
                 local isInsideRaid = (raidTimer ~= nil) or (math.abs(hrp.Position.X - 40000) < 5000)
 
                 if not isInsideRaid then
-                    -- OUTSIDE RAID: Go to gate and enter!
-                    local gateDist = (hrp.Position - HALLOW_GATE_CFRAME.Position).Magnitude
-                    if gateDist > 35 then
-                        if hallowStatusLabel then hallowStatusLabel.Text = "⚡ กำลังวาร์ปไปหน้าประตู (Sunken Waystation)..." end
-                        hrp.CFrame = HALLOW_GATE_CFRAME
-                        task.wait(0.6)
-                    else
-                        local dialog = player.PlayerGui:FindFirstChild("MurimDialog")
-                        if dialog and dialog:FindFirstChild("Panel") then
-                            local sf = dialog.Panel:FindFirstChild("ScrollingFrame")
-                            local diffChoice = sf and sf:FindFirstChild(hallowDifficulty)
-                            if not diffChoice and sf then
-                                for _, child in ipairs(sf:GetChildren()) do
-                                    if child.Name:lower() == hallowDifficulty:lower() then
-                                        diffChoice = child
-                                        break
-                                    end
-                                    local lbl = child:FindFirstChild("Label") or child:FindFirstChildWhichIsA("TextLabel", true)
-                                    if lbl and lbl.Text:lower():find(hallowDifficulty:lower(), 1, true) then
-                                        diffChoice = child
-                                        break
-                                    end
+                    local dialog = player.PlayerGui:FindFirstChild("MurimDialog")
+                    if dialog and dialog:FindFirstChild("Panel") then
+                        local sf = dialog.Panel:FindFirstChild("ScrollingFrame")
+                        local diffChoice = sf and sf:FindFirstChild(hallowDifficulty)
+                        if not diffChoice and sf then
+                            for _, child in ipairs(sf:GetChildren()) do
+                                if child.Name:lower() == hallowDifficulty:lower() then
+                                    diffChoice = child
+                                    break
+                                end
+                                local lbl = child:FindFirstChild("Label") or child:FindFirstChildWhichIsA("TextLabel", true)
+                                if lbl and lbl.Text:lower():find(hallowDifficulty:lower(), 1, true) then
+                                    diffChoice = child
+                                    break
                                 end
                             end
-                            if diffChoice then
-                                local targetBtn = (diffChoice:IsA("GuiButton") and diffChoice) or diffChoice:FindFirstChildWhichIsA("GuiButton", true) or diffChoice
-                                if hallowStatusLabel then hallowStatusLabel.Text = "🚪 กำลังกดเลือก: " .. hallowDifficulty .. "..." end
-                                if typeof(firesignal) == "function" and targetBtn:IsA("GuiButton") then
-                                    pcall(function() firesignal(targetBtn.MouseButton1Click) end)
-                                    pcall(function() firesignal(targetBtn.Activated) end)
+                        end
+                        if diffChoice then
+                            local targetBtn = (diffChoice:IsA("GuiButton") and diffChoice) or diffChoice:FindFirstChildWhichIsA("GuiButton", true) or diffChoice
+                            if hallowStatusLabel then hallowStatusLabel.Text = "🚪 กำลังกดเลือก: " .. hallowDifficulty .. "..." end
+                            if typeof(firesignal) == "function" and targetBtn:IsA("GuiButton") then
+                                pcall(function() firesignal(targetBtn.MouseButton1Click) end)
+                                pcall(function() firesignal(targetBtn.Activated) end)
+                            end
+                            pcall(function()
+                                if VirtualInputManager and targetBtn:IsA("GuiObject") and targetBtn.AbsoluteSize.X > 0 then
+                                    local cx = targetBtn.AbsolutePosition.X + targetBtn.AbsoluteSize.X / 2
+                                    local cy = targetBtn.AbsolutePosition.Y + targetBtn.AbsoluteSize.Y / 2
+                                    VirtualInputManager:SendMouseButtonEvent(cx, cy, 0, true, game, 1)
+                                    task.wait(0.05)
+                                    VirtualInputManager:SendMouseButtonEvent(cx, cy, 0, false, game, 1)
                                 end
-                                pcall(function()
-                                    if VirtualInputManager and targetBtn:IsA("GuiObject") and targetBtn.AbsoluteSize.X > 0 then
-                                        local cx = targetBtn.AbsolutePosition.X + targetBtn.AbsoluteSize.X / 2
-                                        local cy = targetBtn.AbsolutePosition.Y + targetBtn.AbsoluteSize.Y / 2
-                                        VirtualInputManager:SendMouseButtonEvent(cx, cy, 0, true, game, 1)
-                                        task.wait(0.05)
-                                        VirtualInputManager:SendMouseButtonEvent(cx, cy, 0, false, game, 1)
+                            end)
+                            task.wait(1.5)
+                        end
+                    else
+                        -- Outside raid, dialog not open: Find and interact with Guest Ledger!
+                        local ledgerPrompt, ledgerPart = findGuestLedger()
+                        if ledgerPart then
+                            local dist = (hrp.Position - ledgerPart.Position).Magnitude
+                            if dist > 8 then
+                                if hallowStatusLabel then hallowStatusLabel.Text = "⚡ กำลังวาร์ปไปที่แท่นสมุด Guest Ledger..." end
+                                hrp.CFrame = ledgerPart.CFrame * CFrame.new(0, 2, -4) * CFrame.Angles(0, math.rad(180), 0)
+                                task.wait(0.5)
+                            else
+                                if hallowStatusLabel then hallowStatusLabel.Text = "📜 กำลังกด Sign the guest ledger..." end
+                                if ledgerPrompt then
+                                    if typeof(fireproximityprompt) == "function" then
+                                        fireproximityprompt(ledgerPrompt)
+                                    else
+                                        pcall(function()
+                                            ledgerPrompt:InputHoldBegin()
+                                            task.wait(ledgerPrompt.HoldDuration or 0.1)
+                                            ledgerPrompt:InputHoldEnd()
+                                        end)
                                     end
-                                end)
-                                task.wait(1.5)
+                                else
+                                    pcall(function()
+                                        if VirtualInputManager then
+                                            VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.E, false, game)
+                                            task.wait(0.1)
+                                            VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.E, false, game)
+                                        end
+                                    end)
+                                end
+                                task.wait(0.8)
                             end
                         else
-                            if hallowStatusLabel then hallowStatusLabel.Text = "💬 กำลังกดคุยกับประตู The Hungry Ghost Gate..." end
-                            local foundPrompt = false
-                            for _, desc in ipairs(Workspace:GetDescendants()) do
-                                if desc:IsA("ProximityPrompt") and desc.Enabled then
-                                    local pPart = desc.Parent:IsA("BasePart") and desc.Parent or (desc.Parent and desc.Parent:FindFirstChildWhichIsA("BasePart", true))
-                                    if pPart and (pPart.Position - hrp.Position).Magnitude <= 40 then
-                                        if typeof(fireproximityprompt) == "function" then
-                                            fireproximityprompt(desc)
-                                            foundPrompt = true
-                                            break
-                                        else
-                                            pcall(function()
-                                                desc:InputHoldBegin()
-                                                task.wait(desc.HoldDuration or 0.1)
-                                                desc:InputHoldEnd()
-                                            end)
-                                            foundPrompt = true
-                                            break
-                                        end
-                                    end
-                                end
+                            -- Ledger not yet found nearby: warp to Sunken Waystation area to stream in
+                            local gateDist = (hrp.Position - HALLOW_GATE_CFRAME.Position).Magnitude
+                            if gateDist > 35 then
+                                if hallowStatusLabel then hallowStatusLabel.Text = "⚡ กำลังวาร์ปไปลานพิธี (Sunken Waystation)..." end
+                                hrp.CFrame = HALLOW_GATE_CFRAME
+                                task.wait(0.6)
+                            else
+                                if hallowStatusLabel then hallowStatusLabel.Text = "🔍 กำลังค้นหาแท่นสมุด Guest Ledger..." end
+                                task.wait(0.5)
                             end
-                            if not foundPrompt then
-                                pcall(function()
-                                    if VirtualInputManager then
-                                        VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.E, false, game)
-                                        task.wait(0.1)
-                                        VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.E, false, game)
-                                    end
-                                end)
-                            end
-                            task.wait(0.5)
                         end
                     end
                 else
