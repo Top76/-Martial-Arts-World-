@@ -105,6 +105,12 @@ local KNOWN_BOSSES = {
         Name = "Qiongyu, the White-Jade Dragon",
         Alias = {"qiongyu", "white-jade dragon", "jade dragon", "white jade dragon"},
         Level = 92
+    },
+    {
+        Key = "Patriarch Lou Kunshan",
+        Name = "Patriarch Lou Kunshan",
+        Alias = {"patriarch lou kunshan", "lou kunshan", "kunshan", "patriarch"},
+        Level = 126
     }
 }
 
@@ -147,7 +153,7 @@ local function checkIsBossName(name)
     if name:find(",%s*the%s+") then
         return true
     end
-    if lower:find("dragon") or lower:find("boss") then
+    if lower:find("dragon") or lower:find("boss") or lower:find("patriarch") or lower:find("kunshan") then
         return true
     end
     if bossCache[name] then
@@ -205,14 +211,81 @@ local function getNPCLevel(npc)
 		end
 	end
 
+	local bKey = resolveBossKey(npc.Name)
+	if bKey then
+		for _, info in ipairs(KNOWN_BOSSES) do
+			if (info.Key == bKey or info.Name == bKey) and info.Level and info.Level > 0 then
+				npcLevelCache[npc] = info.Level
+				return info.Level
+			end
+		end
+	end
+
 	local match = npc.Name:match("%d+")
 	if match then
         local num = tonumber(match)
         npcLevelCache[npc] = num
         return num
     end
+
+    for _, desc in ipairs(npc:GetDescendants()) do
+        if desc:IsA("TextLabel") or desc:IsA("TextButton") then
+            local lvlMatch = desc.Text:match("[Ll][Vv]%.?%s*(%d+)") or desc.Text:match("[Ll]evel%s*(%d+)")
+            if lvlMatch then
+                local num = tonumber(lvlMatch)
+                if num and num > 0 then
+                    npcLevelCache[npc] = num
+                    return num
+                end
+            end
+        end
+    end
+
     npcLevelCache[npc] = 0
 	return 0
+end
+
+local function getNPCRootPart(npc)
+    if not npc or not npc:IsA("Model") then return nil end
+    return npc:FindFirstChild("HumanoidRootPart")
+        or npc.PrimaryPart
+        or npc:FindFirstChild("Torso")
+        or npc:FindFirstChild("UpperTorso")
+        or npc:FindFirstChild("LowerTorso")
+        or npc:FindFirstChild("Root")
+        or npc:FindFirstChild("RootPart")
+        or npc:FindFirstChild("Hitbox")
+        or npc:FindFirstChild("Main")
+        or npc:FindFirstChild("Base")
+        or npc:FindFirstChild("Head")
+        or npc:FindFirstChildWhichIsA("BasePart")
+end
+
+local function revealInvisibleNPC(npc)
+    if not npc or not npc:IsA("Model") then return end
+    pcall(function()
+        for _, p in ipairs(npc:GetDescendants()) do
+            if p:IsA("BasePart") then
+                p.LocalTransparencyModifier = 0
+                if p.Transparency >= 0.85 and p.Name ~= "HumanoidRootPart" then
+                    p.Transparency = 0.25
+                    p.Material = Enum.Material.ForceField
+                    p.Color = Color3.fromRGB(190, 80, 255)
+                end
+            end
+        end
+        local hl = npc:FindFirstChild("MurimBossHighlight")
+        if not hl then
+            hl = Instance.new("Highlight")
+            hl.Name = "MurimBossHighlight"
+            hl.FillColor = Color3.fromRGB(180, 70, 255)
+            hl.OutlineColor = Color3.fromRGB(255, 255, 255)
+            hl.FillTransparency = 0.5
+            hl.OutlineTransparency = 0
+            hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+            hl.Parent = npc
+        end
+    end)
 end
 
 local friendlyCache = setmetatable({}, { __mode = "k" })
@@ -280,10 +353,11 @@ local function isAlive(npc)
 	if not npc or not npc:IsA("Model") or not npc.Parent or not npc:IsDescendantOf(Workspace) then return false end
     if isFriendlyOrTalkable(npc) then return false end
 	local hum = npc:FindFirstChildOfClass("Humanoid")
-	if hum then
+	if hum and hum.MaxHealth > 0 then
 		if hum.Health <= 0 or hum:GetState() == Enum.HumanoidStateType.Dead then return false end
 	end
-	local targetPart = npc:FindFirstChild("HumanoidRootPart") or npc.PrimaryPart or npc:FindFirstChild("Torso")
+    if npc:GetAttribute("Dead") == true or npc:GetAttribute("IsDead") == true then return false end
+	local targetPart = getNPCRootPart(npc)
 	return targetPart ~= nil
 end
 
@@ -1083,7 +1157,8 @@ updateBossTimers = function()
             if npc:IsA("Model") and isAlive(npc) then
                 local isBoss, bKey = checkIsBoss(npc)
                 if isBoss and bKey then
-                    local part = npc:FindFirstChild("HumanoidRootPart") or npc.PrimaryPart or npc:FindFirstChild("Torso")
+                    revealInvisibleNPC(npc)
+                    local part = getNPCRootPart(npc)
                     local cf = part and part.CFrame
                     if not bossCache[bKey] then
                         bossCache[bKey] = {
@@ -2111,10 +2186,11 @@ end
 local function applyHitboxToNPC(npc)
 	if not isHitboxExpanded or not npc or not npc:IsA("Model") or isFriendlyOrTalkable(npc) then return end
 
-	local hum = npc:FindFirstChildOfClass("Humanoid")
-	if not hum then return end
+    if checkIsBossName(npc.Name) then
+        revealInvisibleNPC(npc)
+    end
 
-	local hrp = npc:FindFirstChild("HumanoidRootPart") or npc.PrimaryPart or npc:FindFirstChild("Torso")
+	local hrp = getNPCRootPart(npc)
 	if hrp then
         if hrp.Size == HITBOX_SIZE and hrp.Transparency == HITBOX_TRANSPARENCY and hrp.CanCollide == false then
             return
@@ -2318,7 +2394,8 @@ local function chooseBossTarget()
         if data and selectedBossNames[activeBossTarget.Key] then
             local npc = findBossInNPCs(activeBossTarget.Key, data)
             if npc and isAlive(npc) then
-                local part = npc:FindFirstChild("HumanoidRootPart") or npc.PrimaryPart or npc:FindFirstChild("Torso")
+                revealInvisibleNPC(npc)
+                local part = getNPCRootPart(npc)
                 if part then
                     lastBossCFrame = part.CFrame
                     return part.CFrame, true, npc
@@ -2344,9 +2421,10 @@ local function chooseBossTarget()
                 if now >= probeTime then
                     local npc = findBossInNPCs(key, data)
                     if npc and isAlive(npc) then
+                        revealInvisibleNPC(npc)
                         activeBossTarget = { Key = key, NPC = npc, Name = data.Name }
                         activeBossProbeCount = 0
-                        local part = npc:FindFirstChild("HumanoidRootPart") or npc.PrimaryPart or npc:FindFirstChild("Torso")
+                        local part = getNPCRootPart(npc)
                         if part then
                             return part.CFrame, true, npc
                         end
@@ -2365,7 +2443,7 @@ local function getHighestLevelTarget()
     local now = os.clock()
     if now < targetScanAt then
         if cachedTarget and isAlive(cachedTarget) and getNPCLevel(cachedTarget) > 0 then
-            local part = cachedTarget:FindFirstChild("HumanoidRootPart") or cachedTarget.PrimaryPart or cachedTarget:FindFirstChild("Torso")
+            local part = getNPCRootPart(cachedTarget)
             return part.CFrame, true, cachedTarget
         elseif not cachedTarget then
             return nil, false, nil
@@ -2395,7 +2473,7 @@ local function getHighestLevelTarget()
             local level = getNPCLevel(npc)
 			if level > 0 and (favoriteNPCNames[npc.Name] or not hasSelection or selectedNPCNames[npc.Name]) and isAlive(npc) then
 				local isFavorite = favoriteNPCNames[npc.Name] == true
-				local targetPart = npc:FindFirstChild("HumanoidRootPart") or npc.PrimaryPart or npc:FindFirstChild("Torso")
+				local targetPart = getNPCRootPart(npc)
 				
 				if targetPart then
 					if (isFavorite and not bestIsFavorite) or (isFavorite == bestIsFavorite and level > highestLevel) then
@@ -2472,7 +2550,7 @@ local function autoSaveNPCPosition(npc)
 	local lvl = getNPCLevel(npc)
 	knownNPCNames[npc.Name] = math.max(knownNPCNames[npc.Name] or 0, lvl)
 
-	local targetPart = npc:FindFirstChild("HumanoidRootPart") or npc.PrimaryPart or npc:FindFirstChild("Torso")
+	local targetPart = getNPCRootPart(npc)
 	if targetPart then
 		if not savedNPCPositions[npc.Name] then
 			savedNPCPositions[npc.Name] = targetPart.CFrame
@@ -2482,6 +2560,7 @@ local function autoSaveNPCPosition(npc)
 
     local isBoss, bKey = checkIsBoss(npc)
     if isBoss and bKey then
+        revealInvisibleNPC(npc)
         if not bossCache[bKey] then
             bossCache[bKey] = {
                 Key = bKey,
@@ -2527,7 +2606,7 @@ local function useArtifact(aimPosition)
     local aim = aimPosition
     if not aim then
         if currentTarget and isAlive(currentTarget) then
-            local targetPart = currentTarget:FindFirstChild("HumanoidRootPart") or currentTarget.PrimaryPart or currentTarget:FindFirstChild("Torso")
+            local targetPart = getNPCRootPart(currentTarget)
             if targetPart then aim = targetPart.Position end
         end
     end
@@ -2722,9 +2801,15 @@ local function startFarming()
 				pcall(function()
 					combatRemote:FireServer("Attack")
 				end)
+                pcall(function()
+                    local prompt = currentTarget:FindFirstChildWhichIsA("ProximityPrompt", true)
+                    if prompt and prompt.Enabled and typeof(fireproximityprompt) == "function" then
+                        fireproximityprompt(prompt)
+                    end
+                end)
                 if isAutoArtifact and os.clock() - lastArtifactUsed >= artifactCooldown then
                     lastArtifactUsed = os.clock()
-                    local targetPart = currentTarget:FindFirstChild("HumanoidRootPart") or currentTarget.PrimaryPart or currentTarget:FindFirstChild("Torso")
+                    local targetPart = getNPCRootPart(currentTarget)
                     if targetPart then
                         useArtifact(targetPart.Position)
                     end
@@ -2919,7 +3004,7 @@ local function checkAttacker(enemy, myPos, myHrp)
     local actW = enemy:GetAttribute("ActW")
     if type(actT) ~= "number" or type(actW) ~= "number" or actW <= 0 then return end
 
-    local enemyHrp = enemy:FindFirstChild("HumanoidRootPart") or enemy.PrimaryPart or enemy:FindFirstChild("Torso")
+    local enemyHrp = getNPCRootPart(enemy)
     if not enemyHrp then return end
 
     local ep = enemyHrp.Position
@@ -2988,7 +3073,7 @@ artifactTask = task.spawn(function()
                 if npcsFolder then
                     for _, npc in ipairs(npcsFolder:GetChildren()) do
                         if isAlive(npc) then
-                            local tPart = npc:FindFirstChild("HumanoidRootPart") or npc.PrimaryPart or npc:FindFirstChild("Torso")
+                            local tPart = getNPCRootPart(npc)
                             if tPart then
                                 local d = (hrp.Position - tPart.Position).Magnitude
                                 if d < closestDist then
