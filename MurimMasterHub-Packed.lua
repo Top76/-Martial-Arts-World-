@@ -56,10 +56,10 @@ end
 -- ============================================================================
 local HALLOW_GATE_CFRAME = CFrame.new(17958, 2, 2058)
 local HALLOW_FOE_KEYWORDS = {
-    "jiangshi", "driver", "effigy", "tailor", "hungry", "lure", "cerberus", "matriarch", "hg_", "raidmob"
+    "jiangshi", "driver", "effigy", "paper tailor", "hg_tailor", "hungry", "lure", "cerberus", "matriarch", "hg_", "raidmob"
 }
 local HALLOW_IGNORE_KEYWORDS = {
-    "watchman", "sedan", "faceless", "gu heng", "tailor gu heng", "under"
+    "watchman", "sedan", "faceless", "gu heng", "tailor gu heng", "an rou", "tailor an rou", "under", "guest", "ledger", "outfit", "cloth"
 }
 
 local HALLOW_ROOM_DATA = {
@@ -482,6 +482,15 @@ isHallowFoe = function(npc)
     local hum = npc:FindFirstChildOfClass("Humanoid")
     if not hum or hum.Health <= 0 then return false end
 
+    -- Town / friendly NPCs with Talk or Interaction prompts must NEVER be foes!
+    local prompt = npc:FindFirstChildWhichIsA("ProximityPrompt", true)
+    if prompt and prompt.Enabled then
+        local act = (prompt.ActionText or ""):lower()
+        if act:find("talk") or act:find("shop") or act:find("buy") or act:find("cloth") or act:find("outfit") or act:find("chat") then
+            return false
+        end
+    end
+
     if npc:GetAttribute("unhurt") or npc:GetAttribute("HallowNoBar") then
         return false
     end
@@ -491,16 +500,23 @@ isHallowFoe = function(npc)
         if name:find(ign, 1, true) then return false end
     end
 
+    -- Raid boundary check: Raid is strictly located around X = 40000!
+    -- Mobs outside the raid zone (X != 40000) are town / overworld NPCs and MUST be ignored!
+    local p = npc.PrimaryPart or npc:FindFirstChild("HumanoidRootPart") or npc:FindFirstChildWhichIsA("BasePart")
+    if not p then return false end
+    if math.abs(p.Position.X - 40000) > 3000 then
+        return false
+    end
+
     for _, kw in ipairs(HALLOW_FOE_KEYWORDS) do
         if name:find(kw, 1, true) then return true end
     end
 
     local hrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
-    if hrp and math.abs(hrp.Position.X - 40000) < 5000 then
+    if hrp and math.abs(hrp.Position.X - 40000) < 3000 then
         local npcsFolder = Workspace:FindFirstChild("Murim_NPCs")
         if npcsFolder and npc.Parent == npcsFolder then
-            local p = npc.PrimaryPart or npc:FindFirstChild("HumanoidRootPart") or npc:FindFirstChildWhichIsA("BasePart")
-            if p and (p.Position - hrp.Position).Magnitude < 300 then
+            if (p.Position - hrp.Position).Magnitude < 300 then
                 return true
             end
         end
@@ -515,13 +531,23 @@ local function isFriendlyOrTalkable(npc)
     local cached = friendlyCache[npc]
     if cached ~= nil then return cached end
 
+    -- Interactive dialogue/quest NPCs have prompts with Talk / Shop
+    local prompt = npc:FindFirstChildWhichIsA("ProximityPrompt", true)
+    if prompt then
+        local act = (prompt.ActionText or ""):lower()
+        if act:find("talk") or act:find("shop") or act:find("buy") or act:find("chat") or act:find("outfit") or act:find("cloth") then
+            friendlyCache[npc] = true
+            return true
+        end
+    end
+
     if checkIsBoss(npc) or isHallowFoe(npc) then
         friendlyCache[npc] = false
         return false
     end
 
-    -- 1. ProximityPrompt check (interactive dialogue/quest NPCs have prompts)
-    if npc:FindFirstChildWhichIsA("ProximityPrompt", true) then
+    -- 1. Any other ProximityPrompt
+    if prompt then
         friendlyCache[npc] = true
         return true
     end
@@ -3644,8 +3670,7 @@ local hallowRaidTask = task.spawn(function()
             local char = player.Character
             local hrp = char and char:FindFirstChild("HumanoidRootPart")
             if hrp then
-                local raidTimer = player.PlayerGui:FindFirstChild("MurimRaidTimer")
-                local isInsideRaid = (raidTimer ~= nil) or (math.abs(hrp.Position.X - 40000) < 5000)
+                local isInsideRaid = math.abs(hrp.Position.X - 40000) < 3000
 
                 if not isInsideRaid then
                     currentRaidRoomIndex = 1
@@ -3791,13 +3816,15 @@ local hallowRaidTask = task.spawn(function()
                                     local part = getNPCRootPart(npc)
                                     if part then
                                         local d = (part.Position - hrpPos).Magnitude
-                                        local nLow = npc.Name:lower()
-                                        if nLow:find("cerberus") or nLow:find("matriarch") then
-                                            d = d - 500
-                                        end
-                                        if d < bestDist then
-                                            bestDist = d
-                                            bestFoe = npc
+                                        if d <= 250 then
+                                            local nLow = npc.Name:lower()
+                                            if nLow:find("cerberus") or nLow:find("matriarch") then
+                                                d = d - 500
+                                            end
+                                            if d < bestDist then
+                                                bestDist = d
+                                                bestFoe = npc
+                                            end
                                         end
                                     end
                                 end
@@ -3810,13 +3837,15 @@ local hallowRaidTask = task.spawn(function()
                                     local part = getNPCRootPart(desc)
                                     if part then
                                         local d = (part.Position - hrpPos).Magnitude
-                                        local nLow = desc.Name:lower()
-                                        if nLow:find("cerberus") or nLow:find("matriarch") then
-                                            d = d - 500
-                                        end
-                                        if d < bestDist then
-                                            bestDist = d
-                                            bestFoe = desc
+                                        if d <= 250 then
+                                            local nLow = desc.Name:lower()
+                                            if nLow:find("cerberus") or nLow:find("matriarch") then
+                                                d = d - 500
+                                            end
+                                            if d < bestDist then
+                                                bestDist = d
+                                                bestFoe = desc
+                                            end
                                         end
                                     end
                                 end
