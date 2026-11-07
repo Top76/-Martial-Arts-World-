@@ -3014,7 +3014,9 @@ local alchemyPendingAt, alchemyNextAt, alchemyCount, beatVersion = 0, 0, 0, 0
 local alchemyRequestVersion = 0
 local refreshAlchemy
 local breakthroughEnabled, breakthroughToken = false, 0
-local qiAuto, tribAuto = false, false
+local qiAuto, tribAuto, minorAuto = false, false, true
+local minorHitCount, minorTotalHits = 0, 0
+local cultStatus, cultResult, cultCounter, updateCultCounter
 local cultivationPhase
 local cultRemote = need(remotes, "Cultivation")
 local refreshBreakthrough
@@ -3503,41 +3505,66 @@ connect(minigameRemote.OnClientEvent, function(data)
     if closed or type(data) ~= "table" then return end
     if data.op == "Start" then
         generalMinigameActive = true
-        alchemyActive = alchemyPending or data.kind == "Alchemy"
+        alchemyActive = alchemyPending or (data.kind == "Alchemy")
         alchemyPending = false
         beatVersion += 1
         currentBeat = nil
         if alchemyActive then
             alchemyCount += 1
             alchemyStatus.Text = "กำลังปรุง • เริ่มแล้ว " .. alchemyCount .. " รอบ"
+        else
+            minorHitCount = 0
+            if cultStatus and cultStatus.Parent then
+                cultStatus.Text = "เริ่มทะลวงย่อย • กำลังรอจังหวะ Beat"
+            end
         end
     elseif data.op == "Beat" then
-        if not alchemyActive then return end
+        generalMinigameActive = true
+        local isAlchemy = alchemyActive
+        if isAlchemy and not alchemyHit then return end
+        if not isAlchemy and not minorAuto then return end
+
         currentBeat = {}
         local beat = currentBeat
-        if not alchemyHit then return end
         local version = beatVersion
-        local window = tonumber(data.window) or 0.5
+        local window = tonumber(data.window) or tonumber(data.t) or tonumber(data.lead) or 0.5
         if window < 0 or window > 30 or data.i == nil then return end
         local target = os.clock() + window
         task.delay(window, function()
-            if closed or not alchemyHit or not alchemyActive or currentBeat ~= beat or version ~= beatVersion then return end
-            minigameRemote:FireServer({ op = "Hit", i = data.i, off = os.clock() - target })
+            if closed or currentBeat ~= beat or version ~= beatVersion then return end
+            if isAlchemy and not (alchemyHit and alchemyActive) then return end
+            if not isAlchemy and not minorAuto then return end
+            local off = os.clock() - target
+            minigameRemote:FireServer({ op = "Hit", i = data.i, off = off })
         end)
     elseif data.op == "Hit" or data.op == "Miss" or data.op == "Early" then
+        currentBeat = nil
         if alchemyActive then
-            currentBeat = nil
             alchemyResult.Text = "จังหวะล่าสุด: " .. ({ Hit = "สำเร็จ", Miss = "พลาด", Early = "เร็วเกินไป" })[data.op]
+        else
+            minorTotalHits += 1
+            local opName = ({ Hit = "สำเร็จ ✅", Miss = "พลาด ❌", Early = "เร็วเกินไป ⚠️" })[data.op] or tostring(data.op)
+            if cultResult and cultResult.Parent then
+                cultResult.Text = "ทะลวงย่อย Beat " .. tostring(data.i or "") .. ": " .. opName
+            end
+            if updateCultCounter then updateCultCounter() end
         end
     elseif data.op == "End" then
         local wasAlchemy = alchemyActive or alchemyPending
         generalMinigameActive, alchemyActive, alchemyPending = false, false, false
         beatVersion += 1
         currentBeat = nil
-        alchemyNextAt = os.clock() + 3.2
         if wasAlchemy then
+            alchemyNextAt = os.clock() + 3.2
             alchemyResult.Text = "ผลล่าสุด: " .. tostring(data.text or (data.success and "สำเร็จ" or "จบรอบ"))
             alchemyStatus.Text = alchemyAuto and "จบรอบ • รอเริ่มรอบถัดไป" or "จบรอบแล้ว"
+        else
+            if cultResult and cultResult.Parent then
+                cultResult.Text = "ทะลวงย่อย: " .. (data.success and "ทะลวงสำเร็จ! 🎉" or ("จบรอบ " .. tostring(data.text or "")))
+            end
+            if cultStatus and cultStatus.Parent then
+                cultStatus.Text = "จบรอบทะลวงย่อย • รอเริ่มในเกมเอง"
+            end
         end
     end
 end)
@@ -3561,7 +3588,7 @@ stopAll.BackgroundColor3 = Color3.fromRGB(150, 55, 55)
 local function stopWorkshop()
     enabled, forgeEnabled, alchemyAuto, alchemyHit = false, false, false, false
     breakthroughEnabled = false
-    qiAuto, tribAuto = false, false
+    qiAuto, tribAuto, minorAuto = false, false, false
     breakthroughToken += 1
     if refreshBreakthrough then refreshBreakthrough() end
     alchemyRequestVersion += 1
@@ -3603,16 +3630,17 @@ selectTab("alchemy")
 refit()
 
 
--- Cultivation controls derived from UI.Circulation (CircStart / TribStart).
+-- Cultivation controls derived from UI.Circulation (CircStart / TribStart) & Minigame.
 -- Install before starting the trial so the server's schedule can be observed.
-pageLabel(breakthroughPage, "ทะลวงขั้น • Circulation / Tribulation", 0, 40, 17)
-pageLabel(breakthroughPage, "เปิดปุ่มที่ต้องการ แล้วเริ่มทะลวงขั้นในเกมเอง", 43, 40, 13)
-local qiButton = pageButton(breakthroughPage, "Qi Circulation: ปิด", 94, 43)
-local tribButton = pageButton(breakthroughPage, "Heavenly Tribulation: ปิด", 147, 43)
-local cultStatus = pageLabel(breakthroughPage, "รอข้อมูลรอบใหม่จากเกม", 201, 45)
-local cultResult = pageLabel(breakthroughPage, "ผลล่าสุด: -", 250, 44)
-local cultCounter = pageLabel(breakthroughPage, "Click: 0 | Ward: 0 | Tap: 0", 300, 30, 13)
-pageLabel(breakthroughPage, "Qi: รอจังหวะและข้ามแดง • Tribulation: ตามสัญญาณ\nไม่เริ่มรอบ ไม่ใช้วัตถุดิบ และไม่รีเซ็ตเลเวล", 339, 48, 12)
+pageLabel(breakthroughPage, "ทะลวงขั้น • Breakthrough & Cultivation", 0, 40, 17)
+pageLabel(breakthroughPage, "เปิดปุ่มที่ต้องการ แล้วเริ่มทะลวงในเกมเอง", 43, 40, 13)
+local minorButton = pageButton(breakthroughPage, "Auto ทะลวงย่อย (กดจังหวะ): เปิด", 90, 43)
+local qiButton = pageButton(breakthroughPage, "Qi Circulation: ปิด", 140, 43)
+local tribButton = pageButton(breakthroughPage, "Heavenly Tribulation: ปิด", 190, 43)
+cultStatus = pageLabel(breakthroughPage, "รอข้อมูลรอบใหม่จากเกม", 243, 45)
+cultResult = pageLabel(breakthroughPage, "ผลล่าสุด: -", 292, 44)
+cultCounter = pageLabel(breakthroughPage, "Click: 0 | Ward: 0 | Tap: 0 | Hit ย่อย: 0", 340, 30, 13)
+pageLabel(breakthroughPage, "Qi/Trib: ทะลวงขั้นใหญ่ • ทะลวงย่อย: กดจังหวะอัตโนมัติ 100%\nไม่เริ่มรอบ ไม่ใช้วัตถุดิบ และไม่รีเซ็ตเลเวล", 378, 48, 12)
 local circulation, tribulation
 local clickCount, wardCount, tapCount = 0, 0, 0
 local wardReadyAt = 0
@@ -3620,13 +3648,35 @@ local latestPaint = 0
 local function finite(value)
     return type(value) == "number" and value == value and math.abs(value) < math.huge
 end
+updateCultCounter = function()
+    if cultCounter and cultCounter.Parent then
+        local tStr = string.format("Click: %d | Ward: %d | Tap: %d | Hit ย่อย: %d", clickCount, wardCount, tapCount, minorTotalHits)
+        if cultCounter.Text ~= tStr then cultCounter.Text = tStr end
+    end
+end
 refreshBreakthrough = function()
+    if minorButton then
+        minorButton.Text = minorAuto and "Auto ทะลวงย่อย (กดจังหวะ): เปิด" or "Auto ทะลวงย่อย (กดจังหวะ): ปิด"
+        minorButton.BackgroundColor3 = minorAuto and Color3.fromRGB(52, 125, 102) or Color3.fromRGB(54, 65, 82)
+    end
     qiButton.Text = qiAuto and "Qi Circulation: เปิด" or "Qi Circulation: ปิด"
     tribButton.Text = tribAuto and "Heavenly Tribulation: เปิด" or "Heavenly Tribulation: ปิด"
     qiButton.BackgroundColor3 = qiAuto and Color3.fromRGB(52, 125, 102) or Color3.fromRGB(54, 65, 82)
     tribButton.BackgroundColor3 = tribAuto and Color3.fromRGB(75, 100, 170) or Color3.fromRGB(54, 65, 82)
-    if not qiAuto and not tribAuto then cultStatus.Text = "Auto ปิด • ยังรับข้อมูลรอบจากเกม" end
+    if not qiAuto and not tribAuto and not minorAuto then
+        if cultStatus and cultStatus.Parent and cultStatus.Text ~= "Auto ปิด • ยังรับข้อมูลรอบจากเกม" then
+            cultStatus.Text = "Auto ปิด • ยังรับข้อมูลรอบจากเกม"
+        end
+    end
+    if updateCultCounter then updateCultCounter() end
 end
+connect(minorButton.Activated, function()
+    minorAuto = not minorAuto
+    refreshBreakthrough()
+    if minorAuto and cultStatus and cultStatus.Parent then
+        cultStatus.Text = "เปิด Auto ทะลวงย่อยแล้ว • เริ่มในเกมได้เลย"
+    end
+end)
 connect(qiButton.Activated, function()
     qiAuto = not qiAuto
     refreshBreakthrough()
@@ -3774,11 +3824,13 @@ connect(RunService.Heartbeat, function()
     end
     if now >= latestPaint then
         latestPaint = now + 0.1
-        cultCounter.Text = string.format("Click: %d | Ward: %d | Tap: %d", clickCount, wardCount, tapCount)
+        if updateCultCounter then updateCultCounter() end
         if circulation then
-            cultStatus.Text = qiAuto and "Qi: รอจังหวะทอง • กดเฉพาะ blue" or "Qi: ปิด Auto"
+            local qText = qiAuto and "Qi: รอจังหวะทอง • กดเฉพาะ blue" or "Qi: ปิด Auto"
+            if cultStatus.Text ~= qText then cultStatus.Text = qText end
         elseif tribulation then
-            cultStatus.Text = tribAuto and "Tribulation: รอ Bolt / TapPrompt" or "Tribulation: ปิด Auto"
+            local trText = tribAuto and "Tribulation: รอ Bolt / TapPrompt" or "Tribulation: ปิด Auto"
+            if cultStatus.Text ~= trText then cultStatus.Text = trText end
         end
     end
 end)
@@ -3800,7 +3852,7 @@ local function mountPage(name, index, caption, contents, height)
 end
 mountPage("Alchemy", 4, "ปรุงยา", alchemyPage, 390)
 mountPage("Forge", 5, "Forge", forgePage, 400)
-mountPage("Cultivation", 6, "ทะลวงขั้น", breakthroughPage, 400)
+mountPage("Cultivation", 6, "ทะลวงขั้น", breakthroughPage, 460)
 panel.Visible = false
 restore.Visible = false
 host.stopWorkshop = stopWorkshop
