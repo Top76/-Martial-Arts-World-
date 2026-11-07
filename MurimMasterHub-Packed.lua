@@ -1090,6 +1090,7 @@ local function parseBossInfo(bossItem)
     return bossName, timeText, cf
 end
 
+do
 local bossPage = makePage("Bosses", 2, "บอส")
 newHeading(bossPage, "ล่าบอสอัตโนมัติ & ตรวจจับเวลาบอส")
 
@@ -1429,6 +1430,7 @@ task.spawn(function()
         task.wait(1)
     end
 end)
+end
 
 local tpPage = makePage("Teleport", 3, "จุดวาร์ป")
 sectionHeading(tpHeaderLabel, tpPage, "จุดวาร์ป • บันทึกอัตโนมัติ • เลเวลสูง → ต่ำ")
@@ -1469,6 +1471,7 @@ local GradeNames = {
     [5]  = "Grade 5 (Thunder)",
 }
 
+do
 local hongmengPage = makePage("Hongmeng", 7, "Hongmeng")
 newHeading(hongmengPage, "พิธี Hongmeng & จุดเกิด Wild Qi")
 
@@ -2083,10 +2086,12 @@ externalConnections[#externalConnections + 1] = RunService.Heartbeat:Connect(fun
         statusHLabel.Text = string.format("Trib · ส่ง %d · พลาด %d\n%s", wardSent, wardMissed, wardStatus)
     end
 end)
+end
 
 --------------------------------------------------------------------------------
 -- 🎃 Halloween Page (Index 8) - The Hungry Ghost Gate Auto Raid
 --------------------------------------------------------------------------------
+do
 local halloweenPage = makePage("Halloween", 8, "🎃 ฮาโลวีน")
 newHeading(halloweenPage, "🎃 The Hungry Ghost Gate • Auto Raid")
 
@@ -2275,6 +2280,7 @@ toggleHallowRaidBtn.MouseButton1Click:Connect(function()
         hallowStatusLabel.Text = "💤 ปิดระบบ Auto Hungry Ghost Gate แล้ว"
     end
 end)
+end
 
 local settingsPage = makePage("Settings", 9, "ตั้งค่า")
 newHeading(settingsPage, "ตั้งค่าการฟาร์ม")
