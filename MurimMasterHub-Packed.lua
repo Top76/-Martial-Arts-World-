@@ -50,6 +50,128 @@ local report, finishNotice = ...
 if type(_G.ArtificeGuiCleanup) == "function" then
     pcall(_G.ArtificeGuiCleanup)
 end
+
+-- ============================================================================
+-- 🎃 HALLOWEEN RAID CONSTANTS & HELPERS (FILE-LEVEL SCOPE TO SAVE LOCAL REGISTERS)
+-- ============================================================================
+local HALLOW_GATE_CFRAME = CFrame.new(17958, 2, 2058)
+local HALLOW_FOE_KEYWORDS = {
+    "jiangshi", "driver", "effigy", "tailor", "hungry", "lure", "cerberus", "matriarch", "hg_", "raidmob"
+}
+local HALLOW_IGNORE_KEYWORDS = {
+    "watchman", "sedan", "faceless", "gu heng", "tailor gu heng", "under"
+}
+
+local HALLOW_ROOM_DATA = {
+    { name = "A01_Causeway", title = "Causeway of Unlit Lanterns", hz = "滅燈堤", offset = Vector3.new(0, 5, 96), maxZ = 232 },
+    { name = "A02_CoffinLodge", title = "The Coffin Lodge", hz = "義莊", offset = Vector3.new(0, 5, 309), maxZ = 386 },
+    { name = "A03_EffigyShop", title = "The Paper Effigy Shop", hz = "紙紮鋪", offset = Vector3.new(0, 5, 457), maxZ = 528 },
+    { name = "A04_WatchmanStreet", title = "Watchman's Street", hz = "更夫街", offset = Vector3.new(0, 5, 760), maxZ = 992 },
+    { name = "A05_Teahouse", title = "The Last Teahouse", hz = "末茶樓", offset = Vector3.new(0, -10, 1040), maxZ = 1088 },
+    { name = "A06_Kennel", title = "Kennel of the Yin Gate", hz = "陰門獒院", offset = Vector3.new(0, -10, 1163), maxZ = 1238 },
+    { name = "A07_Throat", title = "The Throat", hz = "咽井", offset = Vector3.new(0, -140, 1280), maxZ = 1322 },
+    { name = "A08_Banquet", title = "Banquet of the Hungry", hz = "餓鬼宴", offset = Vector3.new(0, -300, 1422), maxZ = 1526 },
+    { name = "A09_EmptyBelly", title = "The Empty Belly", hz = "空腹", offset = Vector3.new(0, -290, 1606), maxZ = 1686 },
+    { name = "A10_MoonReturns", title = "The Moon Returns", hz = "月歸", offset = Vector3.new(0, -290, 1680), maxZ = 2000 },
+}
+
+local function findGuestLedger()
+    local ws = game:GetService("Workspace")
+    for _, desc in ipairs(ws:GetDescendants()) do
+        if desc:IsA("ProximityPrompt") and desc.Enabled then
+            local act = (desc.ActionText or ""):lower()
+            local obj = (desc.ObjectText or ""):lower()
+            if obj:find("ledger") or act:find("ledger") or obj:find("guest") or act:find("guest") then
+                local pPart = desc.Parent:IsA("BasePart") and desc.Parent or (desc.Parent and desc.Parent:FindFirstChildWhichIsA("BasePart", true))
+                if pPart then
+                    return desc, pPart
+                end
+            end
+        end
+    end
+    for _, desc in ipairs(ws:GetDescendants()) do
+        local n = desc.Name:lower()
+        if n:find("guest") and n:find("ledger") then
+            local p = desc:IsA("BasePart") and desc or (desc:IsA("Model") and (desc.PrimaryPart or desc:FindFirstChildWhichIsA("BasePart", true)))
+            if p then
+                local prompt = desc:FindFirstChildWhichIsA("ProximityPrompt", true)
+                return prompt, p
+            end
+        end
+    end
+    return nil, nil
+end
+
+local function getActiveRaidInfo(p)
+    local ply = p or game:GetService("Players").LocalPlayer
+    local ws = game:GetService("Workspace")
+    local raidsFolder = ws:FindFirstChild("Raids")
+    local hrp = ply and ply.Character and ply.Character:FindFirstChild("HumanoidRootPart")
+    local origin = Vector3.new(40000, 700, 3000)
+    local activeRaidModel = nil
+
+    if raidsFolder and hrp then
+        local bestDist = math.huge
+        for _, child in ipairs(raidsFolder:GetChildren()) do
+            if child.Name:find("HallowGate") then
+                local p = child:IsA("Model") and (child.PrimaryPart or child:FindFirstChildWhichIsA("BasePart", true))
+                if p then
+                    local d = (p.Position - hrp.Position).Magnitude
+                    if d < bestDist then
+                        bestDist = d
+                        activeRaidModel = child
+                    end
+                elseif not activeRaidModel then
+                    activeRaidModel = child
+                end
+            end
+        end
+    end
+
+    if activeRaidModel then
+        if activeRaidModel.Name:find("2") then
+            origin = Vector3.new(40000, 700, 7000)
+        elseif activeRaidModel.Name:find("3") then
+            origin = Vector3.new(40000, 700, 11000)
+        else
+            origin = Vector3.new(40000, 700, 3000)
+        end
+    end
+
+    return activeRaidModel, origin
+end
+
+local function getRoomTargetPosition(roomIndex, activeRaidModel, origin)
+    local data = HALLOW_ROOM_DATA[roomIndex]
+    if not data then return nil end
+
+    if activeRaidModel then
+        local roomModel = activeRaidModel:FindFirstChild(data.name)
+        if roomModel and roomModel:IsA("Model") then
+            local cf, sz = roomModel:GetBoundingBox()
+            if sz.Magnitude > 0 then
+                return Vector3.new(cf.Position.X, cf.Position.Y - sz.Y / 2 + 4, cf.Position.Z)
+            end
+        end
+    end
+
+    return origin + data.offset
+end
+
+local function detectRoomIndexFromPosition(hrpPos, origin)
+    local relZ = hrpPos.Z - origin.Z
+    for i, data in ipairs(HALLOW_ROOM_DATA) do
+        if relZ <= data.maxZ then
+            return i
+        end
+    end
+    return #HALLOW_ROOM_DATA
+end
+
+local function gateDistance(angle)
+    return math.abs((angle + 180) % 360 - 180)
+end
+
 local function buildMaster()
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
@@ -312,117 +434,6 @@ local function revealInvisibleNPC(npc)
             hl.Parent = npc
         end
     end)
-end
-
-local HALLOW_GATE_CFRAME = CFrame.new(17958, 2, 2058)
-local HALLOW_FOE_KEYWORDS = {
-    "jiangshi", "driver", "effigy", "tailor", "hungry", "lure", "cerberus", "matriarch", "hg_", "raidmob"
-}
-local HALLOW_IGNORE_KEYWORDS = {
-    "watchman", "sedan", "faceless", "gu heng", "tailor gu heng", "under"
-}
-
-local HALLOW_ROOM_DATA = {
-    { name = "A01_Causeway", title = "Causeway of Unlit Lanterns", hz = "滅燈堤", offset = Vector3.new(0, 5, 96), maxZ = 232 },
-    { name = "A02_CoffinLodge", title = "The Coffin Lodge", hz = "義莊", offset = Vector3.new(0, 5, 309), maxZ = 386 },
-    { name = "A03_EffigyShop", title = "The Paper Effigy Shop", hz = "紙紮鋪", offset = Vector3.new(0, 5, 457), maxZ = 528 },
-    { name = "A04_WatchmanStreet", title = "Watchman's Street", hz = "更夫街", offset = Vector3.new(0, 5, 760), maxZ = 992 },
-    { name = "A05_Teahouse", title = "The Last Teahouse", hz = "末茶樓", offset = Vector3.new(0, -10, 1040), maxZ = 1088 },
-    { name = "A06_Kennel", title = "Kennel of the Yin Gate", hz = "陰門獒院", offset = Vector3.new(0, -10, 1163), maxZ = 1238 },
-    { name = "A07_Throat", title = "The Throat", hz = "咽井", offset = Vector3.new(0, -140, 1280), maxZ = 1322 },
-    { name = "A08_Banquet", title = "Banquet of the Hungry", hz = "餓鬼宴", offset = Vector3.new(0, -300, 1422), maxZ = 1526 },
-    { name = "A09_EmptyBelly", title = "The Empty Belly", hz = "空腹", offset = Vector3.new(0, -290, 1606), maxZ = 1686 },
-    { name = "A10_MoonReturns", title = "The Moon Returns", hz = "月歸", offset = Vector3.new(0, -290, 1680), maxZ = 2000 },
-}
-
-local function findGuestLedger()
-    for _, desc in ipairs(Workspace:GetDescendants()) do
-        if desc:IsA("ProximityPrompt") and desc.Enabled then
-            local act = (desc.ActionText or ""):lower()
-            local obj = (desc.ObjectText or ""):lower()
-            if obj:find("ledger") or act:find("ledger") or obj:find("guest") or act:find("guest") then
-                local pPart = desc.Parent:IsA("BasePart") and desc.Parent or (desc.Parent and desc.Parent:FindFirstChildWhichIsA("BasePart", true))
-                if pPart then
-                    return desc, pPart
-                end
-            end
-        end
-    end
-    for _, desc in ipairs(Workspace:GetDescendants()) do
-        local n = desc.Name:lower()
-        if n:find("guest") and n:find("ledger") then
-            local p = desc:IsA("BasePart") and desc or (desc:IsA("Model") and (desc.PrimaryPart or desc:FindFirstChildWhichIsA("BasePart", true)))
-            if p then
-                local prompt = desc:FindFirstChildWhichIsA("ProximityPrompt", true)
-                return prompt, p
-            end
-        end
-    end
-    return nil, nil
-end
-
-local function getActiveRaidInfo()
-    local raidsFolder = Workspace:FindFirstChild("Raids")
-    local hrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
-    local origin = Vector3.new(40000, 700, 3000)
-    local activeRaidModel = nil
-
-    if raidsFolder and hrp then
-        local bestDist = math.huge
-        for _, child in ipairs(raidsFolder:GetChildren()) do
-            if child.Name:find("HallowGate") then
-                local p = child:IsA("Model") and (child.PrimaryPart or child:FindFirstChildWhichIsA("BasePart", true))
-                if p then
-                    local d = (p.Position - hrp.Position).Magnitude
-                    if d < bestDist then
-                        bestDist = d
-                        activeRaidModel = child
-                    end
-                elseif not activeRaidModel then
-                    activeRaidModel = child
-                end
-            end
-        end
-    end
-
-    if activeRaidModel then
-        if activeRaidModel.Name:find("2") then
-            origin = Vector3.new(40000, 700, 7000)
-        elseif activeRaidModel.Name:find("3") then
-            origin = Vector3.new(40000, 700, 11000)
-        else
-            origin = Vector3.new(40000, 700, 3000)
-        end
-    end
-
-    return activeRaidModel, origin
-end
-
-local function getRoomTargetPosition(roomIndex, activeRaidModel, origin)
-    local data = HALLOW_ROOM_DATA[roomIndex]
-    if not data then return nil end
-
-    if activeRaidModel then
-        local roomModel = activeRaidModel:FindFirstChild(data.name)
-        if roomModel and roomModel:IsA("Model") then
-            local cf, sz = roomModel:GetBoundingBox()
-            if sz.Magnitude > 0 then
-                return Vector3.new(cf.Position.X, cf.Position.Y - sz.Y / 2 + 4, cf.Position.Z)
-            end
-        end
-    end
-
-    return origin + data.offset
-end
-
-local function detectRoomIndexFromPosition(hrpPos, origin)
-    local relZ = hrpPos.Z - origin.Z
-    for i, data in ipairs(HALLOW_ROOM_DATA) do
-        if relZ <= data.maxZ then
-            return i
-        end
-    end
-    return #HALLOW_ROOM_DATA
 end
 
 isHallowFoe = function(npc)
@@ -1690,27 +1701,29 @@ searchHBtn.Font = Enum.Font.SourceSansBold
 searchHBtn.Parent = autoPage
 Instance.new("UICorner", searchHBtn).CornerRadius = UDim.new(0, 6)
 
-local guideBox = Instance.new("Frame")
-guideBox.Name = "GuideBox"
-guideBox.Size = UDim2.new(1, 0, 0, 110)
-guideBox.Position = UDim2.new(0, 0, 0, 154)
-guideBox.BackgroundColor3 = Color3.fromRGB(18, 23, 33)
-guideBox.BorderSizePixel = 0
-guideBox.Parent = autoPage
-Instance.new("UICorner", guideBox).CornerRadius = UDim.new(0, 6)
+do
+    local guideBox = Instance.new("Frame")
+    guideBox.Name = "GuideBox"
+    guideBox.Size = UDim2.new(1, 0, 0, 110)
+    guideBox.Position = UDim2.new(0, 0, 0, 154)
+    guideBox.BackgroundColor3 = Color3.fromRGB(18, 23, 33)
+    guideBox.BorderSizePixel = 0
+    guideBox.Parent = autoPage
+    Instance.new("UICorner", guideBox).CornerRadius = UDim.new(0, 6)
 
-local guideLabel = Instance.new("TextLabel")
-guideLabel.Size = UDim2.new(1, -16, 1, -12)
-guideLabel.Position = UDim2.new(0, 8, 0, 6)
-guideLabel.BackgroundTransparency = 1
-guideLabel.Text = "• ระบบตรวจจับ Remote Hongmeng และถอดรหัสอัตโนมัติ\n• เฟส Weave: หมุนผนึกแก้ค่ายกลตามจังหวะ\n• เฟส Hold: สลับทิศทางลูกศรและกดย้อนกลับทันที\n• เฟส Trib: คำนวณเวลาและกด Ward สายฟ้าอัตโนมัติ"
-guideLabel.TextColor3 = Color3.fromRGB(145, 160, 185)
-guideLabel.TextSize = 11
-guideLabel.Font = Enum.Font.SourceSans
-guideLabel.TextWrapped = true
-guideLabel.TextXAlignment = Enum.TextXAlignment.Left
-guideLabel.TextYAlignment = Enum.TextYAlignment.Top
-guideLabel.Parent = guideBox
+    local guideLabel = Instance.new("TextLabel")
+    guideLabel.Size = UDim2.new(1, -16, 1, -12)
+    guideLabel.Position = UDim2.new(0, 8, 0, 6)
+    guideLabel.BackgroundTransparency = 1
+    guideLabel.Text = "• ระบบตรวจจับ Remote Hongmeng และถอดรหัสอัตโนมัติ\n• เฟส Weave: หมุนผนึกแก้ค่ายกลตามจังหวะ\n• เฟส Hold: สลับทิศทางลูกศรและกดย้อนกลับทันที\n• เฟส Trib: คำนวณเวลาและกด Ward สายฟ้าอัตโนมัติ"
+    guideLabel.TextColor3 = Color3.fromRGB(145, 160, 185)
+    guideLabel.TextSize = 11
+    guideLabel.Font = Enum.Font.SourceSans
+    guideLabel.TextWrapped = true
+    guideLabel.TextXAlignment = Enum.TextXAlignment.Left
+    guideLabel.TextYAlignment = Enum.TextYAlignment.Top
+    guideLabel.Parent = guideBox
+end
 
 -- 2. Wild Qi Page Controls
 local refreshQiBtn = Instance.new("TextButton")
@@ -1904,6 +1917,7 @@ refreshQiButtons = function()
     qiScrollList.CanvasSize = UDim2.new(0, 0, 0, (#qiList * 36) + 10)
 end
 
+do
 -- Discord Webhook Task
 local HttpService = game:GetService("HttpService")
 local sendRequest = request or http_request or (syn and syn.request)
@@ -1998,6 +2012,7 @@ task.spawn(function()
         task.wait(5)
     end
 end)
+end
 
 -- Hongmeng Rules & Remote
 local hmRules = nil
@@ -2079,10 +2094,6 @@ local remotesFolder = ReplicatedStorage:FindFirstChild("Murim") and ReplicatedSt
 if remotesFolder then
     externalConnections[#externalConnections + 1] = remotesFolder.ChildAdded:Connect(bindHongmengRemote)
     externalConnections[#externalConnections + 1] = remotesFolder.ChildRemoved:Connect(bindHongmengRemote)
-end
-
-local function gateDistance(angle)
-    return math.abs((angle + 180) % 360 - 180)
 end
 
 local function setHongmengEnabled(enabled)
