@@ -56,6 +56,7 @@ local Workspace = game:GetService("Workspace")
 local UserInputService = game:GetService("UserInputService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+local CollectionService = game:GetService("CollectionService")
 local VirtualInputManager
 pcall(function() VirtualInputManager = game:GetService("VirtualInputManager") end)
 
@@ -93,6 +94,16 @@ local lastBossCFrame = nil
 local bossLootWaitUntil = 0
 local updateBossTimers = nil
 
+-- 🎃 Halloween Gate Raid Variables
+local isAutoHallowRaid = false
+local hallowDifficulty = "Normal"
+local isHallowAutoRepeat = true
+local isHallowPacifySeen = true
+local lastSeenPacifyTime = 0
+local toggleHallowRaidBtn = nil
+local hallowStatusLabel = nil
+local isHallowFoe = nil
+
 local KNOWN_BOSSES = {
     {
         Key = "Ye Wuxian, the Stringless Bow",
@@ -111,6 +122,18 @@ local KNOWN_BOSSES = {
         Name = "Patriarch Lou Kunshan",
         Alias = {"patriarch lou kunshan", "lou kunshan", "kunshan", "patriarch"},
         Level = 126
+    },
+    {
+        Key = "HG_Cerberus",
+        Name = "Cerberus Jiangshi",
+        Alias = {"cerberus", "hg_cerberus", "three-headed", "yin gate", "สามหัว"},
+        Level = 90
+    },
+    {
+        Key = "HG_Matriarch",
+        Name = "Hungry Ghost Matriarch",
+        Alias = {"matriarch", "hg_matriarch", "hungry ghost matriarch", "empty belly", "แม่ผีหิว"},
+        Level = 110
     }
 }
 
@@ -153,7 +176,7 @@ local function checkIsBossName(name)
     if name:find(",%s*the%s+") then
         return true
     end
-    if lower:find("dragon") or lower:find("boss") or lower:find("patriarch") or lower:find("kunshan") then
+    if lower:find("dragon") or lower:find("boss") or lower:find("patriarch") or lower:find("kunshan") or lower:find("cerberus") or lower:find("matriarch") then
         return true
     end
     if bossCache[name] then
@@ -288,13 +311,38 @@ local function revealInvisibleNPC(npc)
     end)
 end
 
+local HALLOW_GATE_CFRAME = CFrame.new(17958, 2, 2058)
+local HALLOW_FOE_KEYWORDS = {
+    "jiangshi", "driver", "effigy", "tailor", "hungry", "lure", "cerberus", "matriarch", "hg_"
+}
+local HALLOW_IGNORE_KEYWORDS = {
+    "watchman", "sedan", "faceless", "coffin"
+}
+
+isHallowFoe = function(npc)
+    if not npc or not npc:IsA("Model") or not npc.Parent then return false end
+    if Players:GetPlayerFromCharacter(npc) then return false end
+    local fullName = npc:GetFullName():lower()
+    for _, ign in ipairs(HALLOW_IGNORE_KEYWORDS) do
+        if fullName:find(ign, 1, true) then return false end
+    end
+    for _, kw in ipairs(HALLOW_FOE_KEYWORDS) do
+        if fullName:find(kw, 1, true) then return true end
+    end
+    local part = getNPCRootPart(npc)
+    if part and math.abs(part.Position.X - 40000) < 5000 then
+        return true
+    end
+    return false
+end
+
 local friendlyCache = setmetatable({}, { __mode = "k" })
 local function isFriendlyOrTalkable(npc)
     if not npc or not npc:IsA("Model") then return true end
     local cached = friendlyCache[npc]
     if cached ~= nil then return cached end
 
-    if checkIsBoss(npc) then
+    if checkIsBoss(npc) or isHallowFoe(npc) then
         friendlyCache[npc] = false
         return false
     end
@@ -949,11 +997,11 @@ local function makePage(name, index, caption)
     pages[index] = page
     local tab = Instance.new("TextButton")
     tab.Name = name .. "Tab"
-    tab.Size = UDim2.new(1 / 4, -4, 0, 38)
-    tab.Position = UDim2.new(((index - 1) % 4) / 4, ((index - 1) % 4) * 2, 0, math.floor((index - 1) / 4) * 44)
+    tab.Size = UDim2.new(1 / 5, -4, 0, 38)
+    tab.Position = UDim2.new(((index - 1) % 5) / 5, ((index - 1) % 5) * 2, 0, math.floor((index - 1) / 5) * 44)
     tab.BorderSizePixel = 0
     tab.Font = Enum.Font.SourceSansBold
-    tab.TextSize = 13
+    tab.TextSize = 12
     tab.Text = caption
     tab.TextWrapped = true
     tab.Parent = tabsBar
@@ -2036,7 +2084,199 @@ externalConnections[#externalConnections + 1] = RunService.Heartbeat:Connect(fun
     end
 end)
 
-local settingsPage = makePage("Settings", 8, "ตั้งค่า")
+--------------------------------------------------------------------------------
+-- 🎃 Halloween Page (Index 8) - The Hungry Ghost Gate Auto Raid
+--------------------------------------------------------------------------------
+local halloweenPage = makePage("Halloween", 8, "🎃 ฮาโลวีน")
+newHeading(halloweenPage, "🎃 The Hungry Ghost Gate • Auto Raid")
+
+local hallowBody = Instance.new("ScrollingFrame")
+hallowBody.Name = "HallowContent"
+hallowBody.Position = UDim2.new(0, 0, 0, 44)
+hallowBody.Size = UDim2.new(1, 0, 1, -56)
+hallowBody.BackgroundTransparency = 1
+hallowBody.BorderSizePixel = 0
+hallowBody.ScrollBarThickness = 4
+hallowBody.CanvasSize = UDim2.new(0, 0, 0, 430)
+hallowBody.Parent = halloweenPage
+
+toggleHallowRaidBtn = Instance.new("TextButton")
+toggleHallowRaidBtn.Name = "ToggleHallowRaidBtn"
+toggleHallowRaidBtn.Font = Enum.Font.SourceSansBold
+toggleHallowRaidBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+toggleHallowRaidBtn.TextSize = 13
+toggleHallowRaidBtn.BackgroundColor3 = Color3.fromRGB(150, 45, 60)
+toggleHallowRaidBtn.Text = "🎃 ออโต้ผ่านด่าน Hungry Ghost Gate (Auto: OFF)"
+Instance.new("UICorner", toggleHallowRaidBtn).CornerRadius = UDim.new(0, 6)
+placeButton(toggleHallowRaidBtn, hallowBody, 0, 12, 0, 1, -24)
+
+local diffLabel = Instance.new("TextLabel")
+diffLabel.Size = UDim2.new(1, -24, 0, 22)
+diffLabel.Position = UDim2.new(0, 12, 0, 44)
+diffLabel.BackgroundTransparency = 1
+diffLabel.Text = "🎯 เลือกระดับความยาก (Difficulty):"
+diffLabel.TextColor3 = Color3.fromRGB(210, 220, 240)
+diffLabel.Font = Enum.Font.SourceSansBold
+diffLabel.TextSize = 13
+diffLabel.TextXAlignment = Enum.TextXAlignment.Left
+diffLabel.Parent = hallowBody
+
+local diffBtns = {}
+local diffNames = {"Normal", "Hard", "Hardcore"}
+local function updateDiffUI()
+    for _, dName in ipairs(diffNames) do
+        local btn = diffBtns[dName]
+        if btn then
+            if hallowDifficulty == dName then
+                btn.BackgroundColor3 = Color3.fromRGB(75, 95, 180)
+                btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+            else
+                btn.BackgroundColor3 = Color3.fromRGB(40, 45, 60)
+                btn.TextColor3 = Color3.fromRGB(170, 180, 200)
+            end
+        end
+    end
+end
+
+for i, dName in ipairs(diffNames) do
+    local btn = Instance.new("TextButton")
+    btn.Name = "Diff_" .. dName
+    btn.Size = UDim2.new(1 / 3, -8, 0, 30)
+    btn.Position = UDim2.new((i - 1) / 3, 12 + (i - 1) * 4, 0, 70)
+    btn.Font = Enum.Font.SourceSansBold
+    btn.TextSize = 13
+    btn.Text = dName
+    btn.Parent = hallowBody
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
+    diffBtns[dName] = btn
+    btn.MouseButton1Click:Connect(function()
+        hallowDifficulty = dName
+        updateDiffUI()
+    end)
+end
+updateDiffUI()
+
+local toggleHallowRepeatBtn = Instance.new("TextButton")
+toggleHallowRepeatBtn.Font = Enum.Font.SourceSansBold
+toggleHallowRepeatBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+toggleHallowRepeatBtn.TextSize = 13
+toggleHallowRepeatBtn.BackgroundColor3 = Color3.fromRGB(45, 110, 70)
+toggleHallowRepeatBtn.Text = "🔄 ลงซ้ำอัตโนมัติเมื่อจบด่าน: เปิด (ON)"
+Instance.new("UICorner", toggleHallowRepeatBtn).CornerRadius = UDim.new(0, 6)
+placeButton(toggleHallowRepeatBtn, hallowBody, 0, 12, 108, 1, -24)
+
+toggleHallowRepeatBtn.MouseButton1Click:Connect(function()
+    isHallowAutoRepeat = not isHallowAutoRepeat
+    if isHallowAutoRepeat then
+        toggleHallowRepeatBtn.Text = "🔄 ลงซ้ำอัตโนมัติเมื่อจบด่าน: เปิด (ON)"
+        toggleHallowRepeatBtn.BackgroundColor3 = Color3.fromRGB(45, 110, 70)
+    else
+        toggleHallowRepeatBtn.Text = "🔄 ลงซ้ำอัตโนมัติเมื่อจบด่าน: ปิด (OFF)"
+        toggleHallowRepeatBtn.BackgroundColor3 = Color3.fromRGB(80, 55, 65)
+    end
+end)
+
+local toggleHallowSeenBtn = Instance.new("TextButton")
+toggleHallowSeenBtn.Font = Enum.Font.SourceSansBold
+toggleHallowSeenBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+toggleHallowSeenBtn.TextSize = 13
+toggleHallowSeenBtn.BackgroundColor3 = Color3.fromRGB(60, 85, 140)
+toggleHallowSeenBtn.Text = "👁️ สยบผีอัตโนมัติ (Auto Pacify / Seen: ON)"
+Instance.new("UICorner", toggleHallowSeenBtn).CornerRadius = UDim.new(0, 6)
+placeButton(toggleHallowSeenBtn, hallowBody, 0, 12, 146, 1, -24)
+
+toggleHallowSeenBtn.MouseButton1Click:Connect(function()
+    isHallowPacifySeen = not isHallowPacifySeen
+    if isHallowPacifySeen then
+        toggleHallowSeenBtn.Text = "👁️ สยบผีอัตโนมัติ (Auto Pacify / Seen: ON)"
+        toggleHallowSeenBtn.BackgroundColor3 = Color3.fromRGB(60, 85, 140)
+    else
+        toggleHallowSeenBtn.Text = "👁️ สยบผีอัตโนมัติ (Auto Pacify / Seen: OFF)"
+        toggleHallowSeenBtn.BackgroundColor3 = Color3.fromRGB(75, 60, 70)
+    end
+end)
+
+local tpHallowGateBtn = Instance.new("TextButton")
+tpHallowGateBtn.Font = Enum.Font.SourceSansBold
+tpHallowGateBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+tpHallowGateBtn.TextSize = 13
+tpHallowGateBtn.BackgroundColor3 = Color3.fromRGB(110, 60, 150)
+tpHallowGateBtn.Text = "⚡ วาร์ปไปหน้าประตู (Sunken Waystation)"
+Instance.new("UICorner", tpHallowGateBtn).CornerRadius = UDim.new(0, 6)
+placeButton(tpHallowGateBtn, hallowBody, 0, 12, 184, 1, -24)
+
+tpHallowGateBtn.MouseButton1Click:Connect(function()
+    if hubUI.isBusy and hubUI.isBusy() then return end
+    local char = player.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    if hrp then
+        hrp.CFrame = HALLOW_GATE_CFRAME
+        tpHallowGateBtn.Text = "⚡ วาร์ปสำเร็จ!"
+        task.wait(1)
+        if not destroyed and tpHallowGateBtn.Parent then
+            tpHallowGateBtn.Text = "⚡ วาร์ปไปหน้าประตู (Sunken Waystation)"
+        end
+    end
+end)
+
+local hallowStatusBox = Instance.new("Frame")
+hallowStatusBox.Name = "StatusBox"
+hallowStatusBox.Size = UDim2.new(1, -24, 0, 52)
+hallowStatusBox.Position = UDim2.new(0, 12, 0, 226)
+hallowStatusBox.BackgroundColor3 = Color3.fromRGB(18, 22, 32)
+hallowStatusBox.BorderSizePixel = 0
+hallowStatusBox.Parent = hallowBody
+Instance.new("UICorner", hallowStatusBox).CornerRadius = UDim.new(0, 6)
+
+hallowStatusLabel = Instance.new("TextLabel")
+hallowStatusLabel.Name = "StatusLabel"
+hallowStatusLabel.Size = UDim2.new(1, -16, 1, -8)
+hallowStatusLabel.Position = UDim2.new(0, 8, 0, 4)
+hallowStatusLabel.BackgroundTransparency = 1
+hallowStatusLabel.Text = "💤 ระบบออโต้ด่านฮาโลวีนปิดอยู่"
+hallowStatusLabel.TextColor3 = Color3.fromRGB(240, 200, 90)
+hallowStatusLabel.Font = Enum.Font.SourceSansBold
+hallowStatusLabel.TextSize = 13
+hallowStatusLabel.TextWrapped = true
+hallowStatusLabel.Parent = hallowStatusBox
+
+local hallowInfo = Instance.new("TextLabel")
+hallowInfo.Size = UDim2.new(1, -24, 0, 130)
+hallowInfo.Position = UDim2.new(0, 12, 0, 284)
+hallowInfo.BackgroundColor3 = Color3.fromRGB(28, 33, 46)
+hallowInfo.TextColor3 = Color3.fromRGB(180, 195, 215)
+hallowInfo.Font = Enum.Font.SourceSans
+hallowInfo.TextSize = 12
+hallowInfo.TextXAlignment = Enum.TextXAlignment.Left
+hallowInfo.TextYAlignment = Enum.TextYAlignment.Top
+hallowInfo.TextWrapped = true
+hallowInfo.Text = "📌 ข้อมูลการทำงานของระบบ Auto:\n"
+    .. "• ฟาร์มลอยใต้พื้น -7.5 studs ปลอดภัยจากการโจมตี 100%\n"
+    .. "• ขยาย Hitbox ผี 60 studs ตีโดนจากใต้ดินทุกห้อง\n"
+    .. "• ข้ามผีอมตะ (The Faceless Watchman & Red Sedan) อัตโนมัติ\n"
+    .. "• ตีบอสห้อง 6 (Cerberus [Lv.90]) และบอสใหญ่ห้อง 9 (Matriarch [Lv.110])\n"
+    .. "• เก็บของรางวัลอัตโนมัติเมื่อเคลียร์ด่านสำเร็จ"
+hallowInfo.Parent = hallowBody
+Instance.new("UICorner", hallowInfo).CornerRadius = UDim.new(0, 6)
+local pad = Instance.new("UIPadding", hallowInfo)
+pad.PaddingLeft = UDim.new(0, 8)
+pad.PaddingRight = UDim.new(0, 8)
+pad.PaddingTop = UDim.new(0, 8)
+
+toggleHallowRaidBtn.MouseButton1Click:Connect(function()
+    isAutoHallowRaid = not isAutoHallowRaid
+    if isAutoHallowRaid then
+        toggleHallowRaidBtn.Text = "🎃 ออโต้ผ่านด่าน Hungry Ghost Gate (Auto: ON)"
+        toggleHallowRaidBtn.BackgroundColor3 = Color3.fromRGB(35, 140, 75)
+        hallowStatusLabel.Text = "🚀 เริ่มต้นระบบ Auto Hungry Ghost Gate..."
+    else
+        toggleHallowRaidBtn.Text = "🎃 ออโต้ผ่านด่าน Hungry Ghost Gate (Auto: OFF)"
+        toggleHallowRaidBtn.BackgroundColor3 = Color3.fromRGB(150, 45, 60)
+        hallowStatusLabel.Text = "💤 ปิดระบบ Auto Hungry Ghost Gate แล้ว"
+    end
+end)
+
+local settingsPage = makePage("Settings", 9, "ตั้งค่า")
 newHeading(settingsPage, "ตั้งค่าการฟาร์ม")
 local settingsBody = Instance.new("ScrollingFrame")
 settingsBody.Name = "SettingsContent"
@@ -2184,9 +2424,10 @@ end
 
 
 local function applyHitboxToNPC(npc)
-	if not isHitboxExpanded or not npc or not npc:IsA("Model") or isFriendlyOrTalkable(npc) then return end
+	if not isHitboxExpanded and not isAutoHallowRaid then return end
+    if not npc or not npc:IsA("Model") or isFriendlyOrTalkable(npc) then return end
 
-    if checkIsBossName(npc.Name) then
+    if checkIsBossName(npc.Name) or (isHallowFoe and isHallowFoe(npc)) then
         revealInvisibleNPC(npc)
     end
 
@@ -2579,6 +2820,14 @@ local function autoSaveNPCPosition(npc)
 end
 
 local function stopAll()
+    isAutoHallowRaid = false
+    if toggleHallowRaidBtn and toggleHallowRaidBtn.Parent then
+        toggleHallowRaidBtn.Text = "🎃 ออโต้ผ่านด่าน Hungry Ghost Gate (Auto: OFF)"
+        toggleHallowRaidBtn.BackgroundColor3 = Color3.fromRGB(150, 45, 60)
+    end
+    if hallowStatusLabel and hallowStatusLabel.Parent then
+        hallowStatusLabel.Text = "💤 ระบบออโต้ด่านฮาโลวีนปิดอยู่"
+    end
     activeBossTarget = nil
     activeBossProbeCount = 0
     lastBossCFrame = nil
@@ -3109,6 +3358,233 @@ artifactTask = task.spawn(function()
     end
 end)
 
+--------------------------------------------------------------------------------
+-- 🎃 ระบบ Auto The Hungry Ghost Gate Raid
+--------------------------------------------------------------------------------
+local hallowRaidTask = task.spawn(function()
+    while not destroyed do
+        if isAutoHallowRaid and not (hubUI.isBusy and hubUI.isBusy()) then
+            local char = player.Character
+            local hrp = char and char:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                local raidTimer = player.PlayerGui:FindFirstChild("MurimRaidTimer")
+                local isInsideRaid = (raidTimer ~= nil) or (math.abs(hrp.Position.X - 40000) < 5000)
+
+                if not isInsideRaid then
+                    -- OUTSIDE RAID: Go to gate and enter!
+                    local gateDist = (hrp.Position - HALLOW_GATE_CFRAME.Position).Magnitude
+                    if gateDist > 35 then
+                        if hallowStatusLabel then hallowStatusLabel.Text = "⚡ กำลังวาร์ปไปหน้าประตู (Sunken Waystation)..." end
+                        hrp.CFrame = HALLOW_GATE_CFRAME
+                        task.wait(0.6)
+                    else
+                        local dialog = player.PlayerGui:FindFirstChild("MurimDialog")
+                        if dialog and dialog:FindFirstChild("Panel") then
+                            local sf = dialog.Panel:FindFirstChild("ScrollingFrame")
+                            local diffChoice = sf and sf:FindFirstChild(hallowDifficulty)
+                            if not diffChoice and sf then
+                                for _, child in ipairs(sf:GetChildren()) do
+                                    if child.Name:lower() == hallowDifficulty:lower() then
+                                        diffChoice = child
+                                        break
+                                    end
+                                    local lbl = child:FindFirstChild("Label") or child:FindFirstChildWhichIsA("TextLabel", true)
+                                    if lbl and lbl.Text:lower():find(hallowDifficulty:lower(), 1, true) then
+                                        diffChoice = child
+                                        break
+                                    end
+                                end
+                            end
+                            if diffChoice then
+                                local targetBtn = (diffChoice:IsA("GuiButton") and diffChoice) or diffChoice:FindFirstChildWhichIsA("GuiButton", true) or diffChoice
+                                if hallowStatusLabel then hallowStatusLabel.Text = "🚪 กำลังกดเลือก: " .. hallowDifficulty .. "..." end
+                                if typeof(firesignal) == "function" and targetBtn:IsA("GuiButton") then
+                                    pcall(function() firesignal(targetBtn.MouseButton1Click) end)
+                                    pcall(function() firesignal(targetBtn.Activated) end)
+                                end
+                                pcall(function()
+                                    if VirtualInputManager and targetBtn:IsA("GuiObject") and targetBtn.AbsoluteSize.X > 0 then
+                                        local cx = targetBtn.AbsolutePosition.X + targetBtn.AbsoluteSize.X / 2
+                                        local cy = targetBtn.AbsolutePosition.Y + targetBtn.AbsoluteSize.Y / 2
+                                        VirtualInputManager:SendMouseButtonEvent(cx, cy, 0, true, game, 1)
+                                        task.wait(0.05)
+                                        VirtualInputManager:SendMouseButtonEvent(cx, cy, 0, false, game, 1)
+                                    end
+                                end)
+                                task.wait(1.5)
+                            end
+                        else
+                            if hallowStatusLabel then hallowStatusLabel.Text = "💬 กำลังกดคุยกับประตู The Hungry Ghost Gate..." end
+                            local foundPrompt = false
+                            for _, desc in ipairs(Workspace:GetDescendants()) do
+                                if desc:IsA("ProximityPrompt") and desc.Enabled then
+                                    local pPart = desc.Parent:IsA("BasePart") and desc.Parent or (desc.Parent and desc.Parent:FindFirstChildWhichIsA("BasePart", true))
+                                    if pPart and (pPart.Position - hrp.Position).Magnitude <= 40 then
+                                        if typeof(fireproximityprompt) == "function" then
+                                            fireproximityprompt(desc)
+                                            foundPrompt = true
+                                            break
+                                        else
+                                            pcall(function()
+                                                desc:InputHoldBegin()
+                                                task.wait(desc.HoldDuration or 0.1)
+                                                desc:InputHoldEnd()
+                                            end)
+                                            foundPrompt = true
+                                            break
+                                        end
+                                    end
+                                end
+                            end
+                            if not foundPrompt then
+                                pcall(function()
+                                    if VirtualInputManager then
+                                        VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.E, false, game)
+                                        task.wait(0.1)
+                                        VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.E, false, game)
+                                    end
+                                end)
+                            end
+                            task.wait(0.5)
+                        end
+                    end
+                else
+                    -- INSIDE RAID!
+                    if isHallowPacifySeen and os.clock() - lastSeenPacifyTime >= 0.5 then
+                        lastSeenPacifyTime = os.clock()
+                        pcall(function()
+                            local seenRemote = ReplicatedStorage:FindFirstChild("HallowGateSeen")
+                            if seenRemote then
+                                local ids = {}
+                                for _, obj in ipairs(CollectionService:GetTagged("HallowWatched")) do
+                                    local hId = obj:GetAttribute("HallowId")
+                                    if hId then table.insert(ids, hId) end
+                                    if #ids >= 32 then break end
+                                end
+                                if #ids > 0 then
+                                    seenRemote:FireServer("seen", ids)
+                                end
+                            end
+                        end)
+                    end
+
+                    -- Check for drops or boss chest in raid
+                    local dropsFolder = Workspace:FindFirstChild("Murim_Drops")
+                    local raidDrop = nil
+                    if dropsFolder then
+                        for _, drop in ipairs(dropsFolder:GetChildren()) do
+                            if drop and drop.Parent then
+                                local dPart = drop:IsA("BasePart") and drop or (drop:IsA("Model") and (drop.PrimaryPart or drop:FindFirstChildWhichIsA("BasePart", true)))
+                                if dPart and (dPart.Position - hrp.Position).Magnitude <= 120 then
+                                    raidDrop = drop
+                                    break
+                                end
+                            end
+                        end
+                    end
+                    if raidDrop then
+                        if hallowStatusLabel then hallowStatusLabel.Text = "🎁 กำลังเก็บของรางวัล: " .. tostring(raidDrop.Name) end
+                        interactWithDrop(raidDrop)
+                        task.wait(0.1)
+                    else
+                        -- Find closest valid living foe
+                        local bestFoe = nil
+                        local bestDist = math.huge
+                        local hrpPos = hrp.Position
+
+                        local npcsFolder = Workspace:FindFirstChild("Murim_NPCs")
+                        if npcsFolder then
+                            for _, npc in ipairs(npcsFolder:GetChildren()) do
+                                if isHallowFoe(npc) and isAlive(npc) then
+                                    local part = getNPCRootPart(npc)
+                                    if part then
+                                        local d = (part.Position - hrpPos).Magnitude
+                                        local nLow = npc.Name:lower()
+                                        if nLow:find("cerberus") or nLow:find("matriarch") then
+                                            d = d - 500
+                                        end
+                                        if d < bestDist then
+                                            bestDist = d
+                                            bestFoe = npc
+                                        end
+                                    end
+                                end
+                            end
+                        end
+
+                        if not bestFoe then
+                            local raidsFolder = Workspace:FindFirstChild("Raids")
+                            if raidsFolder then
+                                for _, desc in ipairs(raidsFolder:GetDescendants()) do
+                                    if desc:IsA("Model") and isHallowFoe(desc) and isAlive(desc) then
+                                        local part = getNPCRootPart(desc)
+                                        if part then
+                                            local d = (part.Position - hrpPos).Magnitude
+                                            local nLow = desc.Name:lower()
+                                            if nLow:find("cerberus") or nLow:find("matriarch") then
+                                                d = d - 500
+                                            end
+                                            if d < bestDist then
+                                                bestDist = d
+                                                bestFoe = desc
+                                            end
+                                        end
+                                    end
+                                end
+                            end
+                        end
+
+                        if bestFoe and isAlive(bestFoe) then
+                            local targetPart = getNPCRootPart(bestFoe)
+                            if targetPart then
+                                currentTarget = bestFoe
+                                applyHitboxToNPC(bestFoe)
+                                revealInvisibleNPC(bestFoe)
+
+                                hrp.CFrame = targetPart.CFrame * CFrame.new(0, heightUnder, 0) * lyingRotation
+
+                                combatRemote = combatRemote or findCombatRemote()
+                                if combatRemote then
+                                    pcall(function() combatRemote:FireServer("Attack") end)
+                                end
+
+                                if isAutoArtifact and os.clock() - lastArtifactUsed >= artifactCooldown then
+                                    lastArtifactUsed = os.clock()
+                                    useArtifact(targetPart.Position)
+                                end
+
+                                local bName = bestFoe.Name
+                                local bLow = bName:lower()
+                                if hallowStatusLabel then
+                                    if bLow:find("cerberus") then
+                                        hallowStatusLabel.Text = "🐕 กำลังกำจัดบอส: Cerberus Jiangshi (ห้อง 6)!"
+                                    elseif bLow:find("matriarch") then
+                                        hallowStatusLabel.Text = "👑 กำลังกำจัดบอสใหญ่: Hungry Ghost Matriarch (ห้อง 9)!"
+                                    else
+                                        hallowStatusLabel.Text = "⚔️ กำลังกำจัด: " .. bName
+                                    end
+                                end
+                            end
+                        else
+                            if hallowStatusLabel then hallowStatusLabel.Text = "⏳ กำลังรอรอบห้องถัดไป / รอรับรางวัล..." end
+                            if not raidTimer and isHallowAutoRepeat then
+                                if hallowStatusLabel then hallowStatusLabel.Text = "✅ เคลียร์ด่านเรียบร้อย! กำลังเตรียมลงรอบใหม่..." end
+                                task.wait(3.5)
+                            end
+                        end
+                    end
+                end
+            end
+            task.wait(0.04)
+        else
+            if hallowStatusLabel and hallowStatusLabel.Text ~= "💤 ระบบออโต้ด่านฮาโลวีนปิดอยู่" and not isAutoHallowRaid then
+                hallowStatusLabel.Text = "💤 ระบบออโต้ด่านฮาโลวีนปิดอยู่"
+            end
+            task.wait(0.5)
+        end
+    end
+end)
+
 -- อีเวนต์ปุ่มเปิดปิด GUI
 toggleBtn.MouseButton1Click:Connect(function()
 	mainFrame.Visible = not mainFrame.Visible
@@ -3130,6 +3606,7 @@ local function cleanup()
     end
     isParrying = false
     if artifactTask then task.cancel(artifactTask) artifactTask = nil end
+    if hallowRaidTask then task.cancel(hallowRaidTask) hallowRaidTask = nil end
     restoreHitboxes()
     for _, conn in ipairs(folderConnections) do conn:Disconnect() end
     for _, conn in ipairs(externalConnections) do conn:Disconnect() end
