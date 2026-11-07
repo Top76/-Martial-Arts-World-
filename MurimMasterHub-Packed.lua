@@ -172,6 +172,46 @@ local function gateDistance(angle)
     return math.abs((angle + 180) % 360 - 180)
 end
 
+-- ============================================================================
+-- 🛸 FARM POSITIONING & NOCLIP HELPERS (FILE-LEVEL SCOPE TO SAVE LOCAL REGISTERS)
+-- ============================================================================
+local farmPositionMode = "Above" -- "Above" (ลอยเหนือหัว) หรือ "Under" (มุดใต้ดิน)
+local farmDistance = 8.5
+local heightUnder = 8.5
+local lyingRotation = CFrame.Angles(math.rad(-90), 0, 0)
+local updateFarmPositionDisplay = nil -- callback to refresh UI buttons/labels
+
+local function updateFarmSettings(mode, dist)
+    if mode == "Above" or mode == "Under" then
+        farmPositionMode = mode
+    end
+    if dist then
+        farmDistance = math.max(2.0, math.min(25.0, dist))
+    end
+    local d = math.abs(farmDistance or 8.5)
+    if farmPositionMode == "Above" then
+        heightUnder = d
+        lyingRotation = CFrame.Angles(math.rad(-90), 0, 0)
+    else
+        heightUnder = -d
+        lyingRotation = CFrame.Angles(math.rad(90), 0, 0)
+    end
+    if updateFarmPositionDisplay then
+        pcall(updateFarmPositionDisplay)
+    end
+end
+
+local function getFarmOffsetCFrame()
+    local d = math.abs(farmDistance or 8.5)
+    if farmPositionMode == "Above" then
+        -- ลอยเหนือหัว นอนคว่ำหน้าหันมองพื้น
+        return CFrame.new(0, d, 0) * CFrame.Angles(math.rad(-90), 0, 0)
+    else
+        -- มุดใต้ดิน นอนหงายหน้ามองมอนสเตอร์
+        return CFrame.new(0, -d, 0) * CFrame.Angles(math.rad(90), 0, 0)
+    end
+end
+
 local function buildMaster()
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
@@ -746,9 +786,7 @@ local function listSignature(names, levels)
     return table.concat(parts, "|")
 end
 
--- ⚙️ ตั้งค่าระยะมุดใต้ตัวมอนสเตอร์ และขนาด Hitbox
-local heightUnder = -10
-local lyingRotation = CFrame.Angles(math.rad(90), 0, 0)
+-- ⚙️ ขนาด Hitbox มอนสเตอร์ (heightUnder, lyingRotation และ farmPositionMode อยู่ที่ File Scope)
 local HITBOX_SIZE = Vector3.new(12, 12, 12)
 local HITBOX_TRANSPARENCY = 0.7
 
@@ -931,6 +969,16 @@ end)
 -- 🎨 4. ส่วนปุ่มควบคุมและการตั้งค่า
 --------------------------------------------------------------------------------
 
+local togglePositionModeBtn = Instance.new("TextButton")
+togglePositionModeBtn.Name = "FarmPositionModeToggle"
+togglePositionModeBtn.Size = UDim2.new(1, -24, 0, 32)
+togglePositionModeBtn.Position = UDim2.new(0, 12, 1, -336)
+togglePositionModeBtn.Font = Enum.Font.SourceSansBold
+togglePositionModeBtn.TextSize = 13
+togglePositionModeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+togglePositionModeBtn.Parent = mainFrame
+Instance.new("UICorner", togglePositionModeBtn).CornerRadius = UDim.new(0, 6)
+
 local distLabel = Instance.new("TextLabel")
 distLabel.Name = "DistanceLabel"
 distLabel.Size = UDim2.new(1, -24, 0, 20)
@@ -941,17 +989,12 @@ distLabel.Font = Enum.Font.SourceSansBold
 distLabel.TextSize = 13
 distLabel.Parent = mainFrame
 
-local function updateDistText()
-	distLabel.Text = string.format("📏 ระยะมุดใต้ตัว: %.1f studs", heightUnder)
-end
-updateDistText()
-
 local addDistBtn = Instance.new("TextButton")
 addDistBtn.Size = UDim2.new(0, 152, 0, 28)
 addDistBtn.Position = UDim2.new(0, 12, 1, -274)
 addDistBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 60)
 addDistBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-addDistBtn.Text = "⬆️ +0.5 (ตื้นขึ้น)"
+addDistBtn.Text = "⬆️ +0.5 (สูงขึ้น)"
 addDistBtn.Font = Enum.Font.SourceSansBold
 addDistBtn.TextSize = 12
 addDistBtn.Parent = mainFrame
@@ -962,19 +1005,44 @@ subDistBtn.Size = UDim2.new(0, 152, 0, 28)
 subDistBtn.Position = UDim2.new(1, -164, 1, -274)
 subDistBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 60)
 subDistBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-subDistBtn.Text = "⬇️ -0.5 (ลึกลง)"
+subDistBtn.Text = "⬇️ -0.5 (ต่ำลง)"
 subDistBtn.Font = Enum.Font.SourceSansBold
 subDistBtn.TextSize = 12
 subDistBtn.Parent = mainFrame
 Instance.new("UICorner", subDistBtn).CornerRadius = UDim.new(0, 6)
 
-addDistBtn.MouseButton1Click:Connect(function()
-	heightUnder = math.min(-0.5, heightUnder + 0.5)
-	updateDistText()
+local function updateDistText()
+	local modeThai = farmPositionMode == "Above" and "ลอยเหนือหัว (Above)" or "มุดใต้ดิน (Under)"
+	distLabel.Text = string.format("📏 ระยะห่าง [%s]: %.1f studs", modeThai, farmDistance)
+	if farmPositionMode == "Above" then
+		togglePositionModeBtn.Text = "🛸 โหมดตำแหน่ง: ลอยเหนือหัว (Above) ⬇️ มองพื้น"
+		togglePositionModeBtn.BackgroundColor3 = Color3.fromRGB(35, 125, 185)
+		addDistBtn.Text = "⬆️ +0.5 (สูงขึ้น)"
+		subDistBtn.Text = "⬇️ -0.5 (ต่ำลง)"
+	else
+		togglePositionModeBtn.Text = "⛏️ โหมดตำแหน่ง: มุดใต้ดิน (Under) ⬆️ มองฟ้า"
+		togglePositionModeBtn.BackgroundColor3 = Color3.fromRGB(130, 80, 40)
+		addDistBtn.Text = "⬆️ +0.5 (ตื้นขึ้น)"
+		subDistBtn.Text = "⬇️ -0.5 (ลึกลง)"
+	end
+end
+updateFarmPositionDisplay = updateDistText
+updateDistText()
+
+togglePositionModeBtn.MouseButton1Click:Connect(function()
+	if farmPositionMode == "Above" then
+		updateFarmSettings("Under", farmDistance)
+	else
+		updateFarmSettings("Above", farmDistance)
+	end
 end)
+
+addDistBtn.MouseButton1Click:Connect(function()
+	updateFarmSettings(nil, farmDistance + 0.5)
+end)
+
 subDistBtn.MouseButton1Click:Connect(function()
-	heightUnder = math.max(-15.0, heightUnder - 0.5)
-	updateDistText()
+	updateFarmSettings(nil, farmDistance - 0.5)
 end)
 
 local toggleHitboxBtn = Instance.new("TextButton")
@@ -2235,7 +2303,7 @@ hallowBody.Size = UDim2.new(1, 0, 1, -56)
 hallowBody.BackgroundTransparency = 1
 hallowBody.BorderSizePixel = 0
 hallowBody.ScrollBarThickness = 4
-hallowBody.CanvasSize = UDim2.new(0, 0, 0, 430)
+hallowBody.CanvasSize = UDim2.new(0, 0, 0, 500)
 hallowBody.Parent = halloweenPage
 
 toggleHallowRaidBtn = Instance.new("TextButton")
@@ -2367,10 +2435,44 @@ tpHallowGateBtn.MouseButton1Click:Connect(function()
     end
 end)
 
+local hallowPosBtn = Instance.new("TextButton")
+hallowPosBtn.Name = "HallowPosToggle"
+hallowPosBtn.Font = Enum.Font.SourceSansBold
+hallowPosBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+hallowPosBtn.TextSize = 13
+Instance.new("UICorner", hallowPosBtn).CornerRadius = UDim.new(0, 6)
+placeButton(hallowPosBtn, hallowBody, 0, 12, 226, 1, -24)
+
+local function updateHallowPosBtn()
+    if farmPositionMode == "Above" then
+        hallowPosBtn.Text = "🛸 ตำแหน่งตีผี: ลอยเหนือหัว (Above) ⬇️ มองพื้น"
+        hallowPosBtn.BackgroundColor3 = Color3.fromRGB(35, 125, 185)
+    else
+        hallowPosBtn.Text = "⛏️ ตำแหน่งตีผี: มุดใต้ดิน (Under) ⬆️ มองฟ้า"
+        hallowPosBtn.BackgroundColor3 = Color3.fromRGB(130, 80, 40)
+    end
+end
+updateHallowPosBtn()
+
+hallowPosBtn.MouseButton1Click:Connect(function()
+    if farmPositionMode == "Above" then
+        updateFarmSettings("Under", farmDistance)
+    else
+        updateFarmSettings("Above", farmDistance)
+    end
+    updateHallowPosBtn()
+end)
+
+local prevDisplayCb = updateFarmPositionDisplay
+updateFarmPositionDisplay = function()
+    if prevDisplayCb then pcall(prevDisplayCb) end
+    pcall(updateHallowPosBtn)
+end
+
 local hallowStatusBox = Instance.new("Frame")
 hallowStatusBox.Name = "StatusBox"
 hallowStatusBox.Size = UDim2.new(1, -24, 0, 52)
-hallowStatusBox.Position = UDim2.new(0, 12, 0, 226)
+hallowStatusBox.Position = UDim2.new(0, 12, 0, 268)
 hallowStatusBox.BackgroundColor3 = Color3.fromRGB(18, 22, 32)
 hallowStatusBox.BorderSizePixel = 0
 hallowStatusBox.Parent = hallowBody
@@ -2389,8 +2491,8 @@ hallowStatusLabel.TextWrapped = true
 hallowStatusLabel.Parent = hallowStatusBox
 
 local hallowInfo = Instance.new("TextLabel")
-hallowInfo.Size = UDim2.new(1, -24, 0, 130)
-hallowInfo.Position = UDim2.new(0, 12, 0, 284)
+hallowInfo.Size = UDim2.new(1, -24, 0, 140)
+hallowInfo.Position = UDim2.new(0, 12, 0, 328)
 hallowInfo.BackgroundColor3 = Color3.fromRGB(28, 33, 46)
 hallowInfo.TextColor3 = Color3.fromRGB(180, 195, 215)
 hallowInfo.Font = Enum.Font.SourceSans
@@ -2399,11 +2501,12 @@ hallowInfo.TextXAlignment = Enum.TextXAlignment.Left
 hallowInfo.TextYAlignment = Enum.TextYAlignment.Top
 hallowInfo.TextWrapped = true
 hallowInfo.Text = "📌 ข้อมูลการทำงานของระบบ Auto:\n"
-    .. "• ฟาร์มลอยใต้พื้น -7.5 studs ปลอดภัยจากการโจมตี 100%\n"
-    .. "• ขยาย Hitbox ผี 60 studs ตีโดนจากใต้ดินทุกห้อง\n"
+    .. "• เลือกได้ทั้งลอยเหนือหัว (Above) หรือ มุดใต้ดิน (Under)\n"
+    .. "• โหมด Above นอนคว่ำมองพื้น ปลอดภัย 100% ไม่ติดขอบ/พื้น และไม่โดนผีโจมตี\n"
+    .. "• ขยาย Hitbox ผี 60 studs ตีโดนทุกห้อง\n"
     .. "• ข้ามผีอมตะ (The Faceless Watchman & Red Sedan) อัตโนมัติ\n"
     .. "• ตีบอสห้อง 6 (Cerberus [Lv.90]) และบอสใหญ่ห้อง 9 (Matriarch [Lv.110])\n"
-    .. "• เก็บของรางวัลอัตโนมัติเมื่อเคลียร์ด่านสำเร็จ"
+    .. "• ระบบ Noclip ป้องกันการโดนฟิสิกส์เด้งกลับขึ้นมาบนพื้น"
 hallowInfo.Parent = hallowBody
 Instance.new("UICorner", hallowInfo).CornerRadius = UDim.new(0, 6)
 local pad = Instance.new("UIPadding", hallowInfo)
@@ -2437,17 +2540,18 @@ settingsBody.Size = UDim2.new(1, 0, 1, -56)
 settingsBody.BackgroundTransparency = 1
 settingsBody.BorderSizePixel = 0
 settingsBody.ScrollBarThickness = 4
-settingsBody.CanvasSize = UDim2.new(0, 0, 0, 430)
+settingsBody.CanvasSize = UDim2.new(0, 0, 0, 480)
 settingsBody.Parent = settingsPage
+placeButton(togglePositionModeBtn, settingsBody, 0, 12, 0, 1, -24)
 distLabel.Parent = settingsBody
-distLabel.Position = UDim2.new(0, 12, 0, 0)
-distLabel.Size = UDim2.new(1, -24, 0, 28)
+distLabel.Position = UDim2.new(0, 12, 0, 36)
+distLabel.Size = UDim2.new(1, -24, 0, 24)
 distLabel.TextXAlignment = Enum.TextXAlignment.Left
-distLabel.TextSize = 14
-placeButton(addDistBtn, settingsBody, 0, 12, 36, 0.5, -16)
-placeButton(subDistBtn, settingsBody, 0.5, 4, 36, 0.5, -16)
-placeButton(toggleHitboxBtn, settingsBody, 0, 12, 84, 1, -24)
-placeButton(toggleLootBtn, settingsBody, 0, 12, 132, 1, -24)
+distLabel.TextSize = 13
+placeButton(addDistBtn, settingsBody, 0, 12, 64, 0.5, -16)
+placeButton(subDistBtn, settingsBody, 0.5, 4, 64, 0.5, -16)
+placeButton(toggleHitboxBtn, settingsBody, 0, 12, 106, 1, -24)
+placeButton(toggleLootBtn, settingsBody, 0, 12, 148, 1, -24)
 
 local toggleLootFilterBtn = Instance.new("TextButton")
 toggleLootFilterBtn.Name = "LootFilterToggle"
@@ -2455,7 +2559,7 @@ toggleLootFilterBtn.Font = Enum.Font.SourceSansBold
 toggleLootFilterBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 toggleLootFilterBtn.TextSize = 13
 Instance.new("UICorner", toggleLootFilterBtn).CornerRadius = UDim.new(0, 6)
-placeButton(toggleLootFilterBtn, settingsBody, 0, 12, 180, 1, -24)
+placeButton(toggleLootFilterBtn, settingsBody, 0, 12, 190, 1, -24)
 local function displayLootFilter()
     local opt = LOOT_FILTER_OPTIONS[currentLootFilterIdx]
     toggleLootFilterBtn.Text = "🎁 กรองไอเทม: " .. (opt and opt.text or "ทั้งหมด (All)")
@@ -2472,7 +2576,7 @@ toggleParryBtn.Name = "AutoParryToggle"
 toggleParryBtn.Font = Enum.Font.SourceSansBold
 toggleParryBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 Instance.new("UICorner", toggleParryBtn).CornerRadius = UDim.new(0, 6)
-placeButton(toggleParryBtn, settingsBody, 0, 12, 228, 1, -24)
+placeButton(toggleParryBtn, settingsBody, 0, 12, 238, 1, -24)
 local function displayParry()
     toggleParryBtn.Text = isAutoParry and "🛡️ ป้องกันอัตโนมัติ (Auto Parry: ON)" or "🛡️ ป้องกันอัตโนมัติ (Auto Parry: OFF)"
     toggleParryBtn.BackgroundColor3 = isAutoParry and Color3.fromRGB(40, 110, 150) or Color3.fromRGB(90, 60, 110)
@@ -2493,7 +2597,7 @@ toggleArtifactBtn.Name = "AutoArtifactToggle"
 toggleArtifactBtn.Font = Enum.Font.SourceSansBold
 toggleArtifactBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 Instance.new("UICorner", toggleArtifactBtn).CornerRadius = UDim.new(0, 6)
-placeButton(toggleArtifactBtn, settingsBody, 0, 12, 276, 1, -24)
+placeButton(toggleArtifactBtn, settingsBody, 0, 12, 286, 1, -24)
 local function displayArtifact()
     toggleArtifactBtn.Text = isAutoArtifact and "📿 ใช้อาวุธวิเศษ (Auto Artifact: ON)" or "📿 ใช้อาวุธวิเศษ (Auto Artifact: OFF)"
     toggleArtifactBtn.BackgroundColor3 = isAutoArtifact and Color3.fromRGB(40, 110, 150) or Color3.fromRGB(90, 60, 110)
@@ -2513,7 +2617,7 @@ antiAFKButton.Name = "AntiAFKToggle"
 antiAFKButton.Font = Enum.Font.SourceSansBold
 antiAFKButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 Instance.new("UICorner", antiAFKButton).CornerRadius = UDim.new(0, 6)
-placeButton(antiAFKButton, settingsBody, 0, 12, 324, 1, -24)
+placeButton(antiAFKButton, settingsBody, 0, 12, 334, 1, -24)
 local function displayAntiAFK()
     antiAFKButton.Text = antiAFKEnabled and "ป้องกัน AFK (Anti-AFK: ON)" or "ป้องกัน AFK (Anti-AFK: OFF)"
     antiAFKButton.BackgroundColor3 = antiAFKEnabled and Color3.fromRGB(40, 110, 150) or Color3.fromRGB(90, 60, 110)
@@ -2542,7 +2646,7 @@ externalConnections[#externalConnections + 1] = player.Idled:Connect(function()
         warn("[Murim Anti-AFK] " .. tostring(message))
     end
 end)
-placeButton(destroyBtn, settingsBody, 0, 12, 372, 1, -24)
+placeButton(destroyBtn, settingsBody, 0, 12, 382, 1, -24)
 
 -- Keep Start/Stop accessible from every page.
 local footer = Instance.new("Frame")
@@ -2996,6 +3100,24 @@ local function stopAll()
 
 	startBtn.Text = "เริ่มฟาร์ม"
 	startBtn.BackgroundColor3 = Color3.fromRGB(35, 150, 65)
+
+    local char = player.Character
+    if char then
+        for _, part in ipairs(char:GetDescendants()) do
+            if part:IsA("BasePart") and (part.Name == "HumanoidRootPart" or part.Name:find("Torso") or part.Name:find("Leg") or part.Name:find("Arm") or part.Name == "Head") then
+                part.CanCollide = true
+            end
+        end
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        if hrp then
+            hrp.AssemblyLinearVelocity = Vector3.zero
+            hrp.AssemblyAngularVelocity = Vector3.zero
+        end
+        local hum = char:FindFirstChildWhichIsA("Humanoid")
+        if hum and hum.Health > 0 then
+            hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+        end
+    end
 end
 
 local function useArtifact(aimPosition)
@@ -3157,7 +3279,9 @@ local function startFarming()
 
 					if aliveStatus and targetCF and npcObj then
 						currentTarget = npcObj
-						hrp.CFrame = targetCF * CFrame.new(0, heightUnder, 0) * lyingRotation
+						hrp.CFrame = targetCF * getFarmOffsetCFrame()
+						hrp.AssemblyLinearVelocity = Vector3.zero
+						hrp.AssemblyAngularVelocity = Vector3.zero
 					else
 						currentTarget = nil
                         -- If we were away fighting a boss or died, and no selected monsters are currently loaded:
@@ -3707,7 +3831,9 @@ local hallowRaidTask = task.spawn(function()
                                 applyHitboxToNPC(bestFoe)
                                 revealInvisibleNPC(bestFoe)
 
-                                hrp.CFrame = targetPart.CFrame * CFrame.new(0, heightUnder, 0) * lyingRotation
+                                hrp.CFrame = targetPart.CFrame * getFarmOffsetCFrame()
+                                hrp.AssemblyLinearVelocity = Vector3.zero
+                                hrp.AssemblyAngularVelocity = Vector3.zero
 
                                 combatRemote = combatRemote or findCombatRemote()
                                 if combatRemote then
@@ -3806,6 +3932,32 @@ local hallowRaidTask = task.spawn(function()
         end
     end
 end)
+
+-- 🛡️ ระบบ Noclip และป้องกันฟิสิกส์เด้งกลับพื้นอัตโนมัติขณะฟาร์ม
+table.insert(externalConnections, RunService.Stepped:Connect(function()
+    if (isFarming or isAutoFarmBoss or isAutoHallowRaid) then
+        local char = player.Character
+        if char then
+            for _, part in ipairs(char:GetDescendants()) do
+                if part:IsA("BasePart") and part.CanCollide then
+                    part.CanCollide = false
+                end
+            end
+            local hrp = char:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                hrp.AssemblyLinearVelocity = Vector3.zero
+                hrp.AssemblyAngularVelocity = Vector3.zero
+            end
+            local hum = char:FindFirstChildWhichIsA("Humanoid")
+            if hum and hum.Health > 0 then
+                local st = hum:GetState()
+                if st == Enum.HumanoidStateType.Freefall or st == Enum.HumanoidStateType.FallingDown then
+                    hum:ChangeState(Enum.HumanoidStateType.Physics)
+                end
+            end
+        end
+    end
+end))
 
 -- อีเวนต์ปุ่มเปิดปิด GUI
 toggleBtn.MouseButton1Click:Connect(function()
