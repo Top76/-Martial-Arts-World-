@@ -100,6 +100,7 @@ local hallowDifficulty = "Normal"
 local isHallowAutoRepeat = true
 local isHallowPacifySeen = true
 local lastSeenPacifyTime = 0
+local lastRaidCombatTime = 0
 local toggleHallowRaidBtn = nil
 local hallowStatusLabel = nil
 local isHallowFoe = nil
@@ -313,10 +314,12 @@ end
 
 local HALLOW_GATE_CFRAME = CFrame.new(17958, 2, 2058)
 local HALLOW_FOE_KEYWORDS = {
-    "jiangshi", "driver", "effigy", "hg_tailor", "hungry", "lure", "cerberus", "matriarch", "hg_"
+    "jiangshi", "driver", "effigy", "hg_tailor", "paper tailor", "hungry", "lure", "cerberus", "matriarch", "hg_"
 }
 local HALLOW_IGNORE_KEYWORDS = {
-    "watchman", "sedan", "faceless", "coffin", "gu heng", "tailor gu heng"
+    "watchman", "sedan", "faceless", "coffin", "gu heng", "tailor gu heng",
+    "under", "building", "roof", "door", "wall", "pillar", "lantern", "jar", "altar",
+    "lodge", "shop", "street", "teahouse", "throat", "banquet", "belly", "prop"
 }
 
 local function findGuestLedger()
@@ -345,19 +348,49 @@ local function findGuestLedger()
     return nil, nil
 end
 
+local function getActiveRaidRooms()
+    local raidsFolder = Workspace:FindFirstChild("Raids")
+    if not raidsFolder then return {} end
+    local raidModel = nil
+    for _, child in ipairs(raidsFolder:GetChildren()) do
+        if child.Name:find("HallowGate") then
+            raidModel = child
+            break
+        end
+    end
+    if not raidModel then return {} end
+    local rooms = {}
+    for _, child in ipairs(raidModel:GetChildren()) do
+        if child.Name:match("^A%d%d") then
+            table.insert(rooms, child)
+        end
+    end
+    table.sort(rooms, function(a, b) return a.Name < b.Name end)
+    return rooms
+end
+
+local function getRoomPosition(room)
+    if not room then return nil end
+    local sp = room:FindFirstChild("Spawn") or room:FindFirstChild("Center") or room:FindFirstChild("Waypoint")
+    if sp and sp:IsA("BasePart") then return sp.Position end
+    if room:IsA("Model") and room.PrimaryPart then return room.PrimaryPart.Position end
+    local anyPart = room:FindFirstChildWhichIsA("BasePart", true)
+    if anyPart then return anyPart.Position end
+    return nil
+end
+
 isHallowFoe = function(npc)
     if not npc or not npc:IsA("Model") or not npc.Parent then return false end
     if Players:GetPlayerFromCharacter(npc) then return false end
+    local hum = npc:FindFirstChildOfClass("Humanoid")
+    if not hum then return false end
+
     local fullName = npc:GetFullName():lower()
     for _, ign in ipairs(HALLOW_IGNORE_KEYWORDS) do
         if fullName:find(ign, 1, true) then return false end
     end
     for _, kw in ipairs(HALLOW_FOE_KEYWORDS) do
         if fullName:find(kw, 1, true) then return true end
-    end
-    local part = getNPCRootPart(npc)
-    if part and math.abs(part.Position.X - 40000) < 5000 then
-        return true
     end
     return false
 end
@@ -427,9 +460,9 @@ local function isAlive(npc)
 	if not npc or not npc:IsA("Model") or not npc.Parent or not npc:IsDescendantOf(Workspace) then return false end
     if isFriendlyOrTalkable(npc) then return false end
 	local hum = npc:FindFirstChildOfClass("Humanoid")
-	if hum and hum.MaxHealth > 0 then
-		if hum.Health <= 0 or hum:GetState() == Enum.HumanoidStateType.Dead then return false end
-	end
+	if not hum then return false end
+	if hum.MaxHealth > 0 and hum.Health <= 0 then return false end
+	if hum:GetState() == Enum.HumanoidStateType.Dead then return false end
     if npc:GetAttribute("Dead") == true or npc:GetAttribute("IsDead") == true then return false end
 	local targetPart = getNPCRootPart(npc)
 	return targetPart ~= nil
@@ -3580,6 +3613,7 @@ local hallowRaidTask = task.spawn(function()
                         end
 
                         if bestFoe and isAlive(bestFoe) then
+                            lastRaidCombatTime = os.clock()
                             local targetPart = getNPCRootPart(bestFoe)
                             if targetPart then
                                 currentTarget = bestFoe
@@ -3611,10 +3645,51 @@ local hallowRaidTask = task.spawn(function()
                                 end
                             end
                         else
-                            if hallowStatusLabel then hallowStatusLabel.Text = "⏳ กำลังรอรอบห้องถัดไป / รอรับรางวัล..." end
-                            if not raidTimer and isHallowAutoRepeat then
-                                if hallowStatusLabel then hallowStatusLabel.Text = "✅ เคลียร์ด่านเรียบร้อย! กำลังเตรียมลงรอบใหม่..." end
-                                task.wait(3.5)
+                            -- No living foes in current area!
+                            -- If no foes for > 1.2s, advance room-by-room to trigger streaming of next room and mobs!
+                            if os.clock() - lastRaidCombatTime >= 1.2 then
+                                local rooms = getActiveRaidRooms()
+                                if #rooms > 0 then
+                                    local closestIdx = 1
+                                    local closestDist = math.huge
+                                    for idx, rm in ipairs(rooms) do
+                                        local rPos = getRoomPosition(rm)
+                                        if rPos then
+                                            local d = (rPos - hrp.Position).Magnitude
+                                            if d < closestDist then
+                                                closestDist = d
+                                                closestIdx = idx
+                                            end
+                                        end
+                                    end
+
+                                    if closestIdx < #rooms then
+                                        local nextRoom = rooms[closestIdx + 1]
+                                        local nextPos = getRoomPosition(nextRoom)
+                                        if nextPos then
+                                            if hallowStatusLabel then
+                                                hallowStatusLabel.Text = "🚪 เดินหน้าไปห้องถัดไป: " .. nextRoom.Name .. "..."
+                                            end
+                                            hrp.CFrame = CFrame.new(nextPos + Vector3.new(0, 3, 0))
+                                            lastRaidCombatTime = os.clock()
+                                            task.wait(0.8)
+                                        end
+                                    else
+                                        if hallowStatusLabel then
+                                            hallowStatusLabel.Text = "🏆 เคลียร์ครบทุกห้องแล้ว! รอรับรางวัล / วนรอบใหม่..."
+                                        end
+                                        if not raidTimer and isHallowAutoRepeat then
+                                            task.wait(3.5)
+                                        end
+                                    end
+                                else
+                                    if hallowStatusLabel then hallowStatusLabel.Text = "⏳ กำลังรอรอบห้องถัดไป / รอรับรางวัล..." end
+                                    if not raidTimer and isHallowAutoRepeat then
+                                        task.wait(3.5)
+                                    end
+                                end
+                            else
+                                if hallowStatusLabel then hallowStatusLabel.Text = "⏳ กำลังกวาดล้าง / รอผีเกิดในห้อง..." end
                             end
                         end
                     end
