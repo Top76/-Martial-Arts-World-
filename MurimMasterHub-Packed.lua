@@ -68,6 +68,11 @@ local HALLOW_ROOM_DATA = {
     { name = "A03_EffigyShop", title = "The Paper Effigy Shop", hz = "紙紮鋪" },
     { name = "A04_WatchmanStreet", title = "Watchman's Street", hz = "更夫街" },
     { name = "A05_Teahouse", title = "The Last Teahouse", hz = "末茶樓" },
+    { name = "A06_Kennel", title = "Kennel of the Yin Gate", hz = "陰門獒院" },
+    { name = "A07_Throat", title = "The Throat", hz = "咽井" },
+    { name = "A08_Banquet", title = "Banquet of the Hungry", hz = "餓鬼宴" },
+    { name = "A09_EmptyBelly", title = "The Empty Belly", hz = "空腹" },
+    { name = "A10_MoonReturns", title = "The Moon Returns", hz = "月歸" },
 }
 
 local isAutoHallowRaid = false
@@ -2227,7 +2232,7 @@ end)
 
 do
     local halloweenPage = makePage("Halloween", 8, "🎃 ฮาโลวีน")
-    newHeading(halloweenPage, "🎃 The Hungry Ghost Gate • Auto Raid (ห้อง 1 - 5)")
+    newHeading(halloweenPage, "🎃 The Hungry Ghost Gate • Auto Raid (ครบ 10 ห้อง)")
     local hallowBody = Instance.new("ScrollingFrame")
     hallowBody.Name = "HalloweenContent"
     hallowBody.Position = UDim2.new(0, 0, 0, 44)
@@ -2235,7 +2240,7 @@ do
     hallowBody.BackgroundTransparency = 1
     hallowBody.BorderSizePixel = 0
     hallowBody.ScrollBarThickness = 4
-    hallowBody.CanvasSize = UDim2.new(0, 0, 0, 420)
+    hallowBody.CanvasSize = UDim2.new(0, 0, 0, 470)
     hallowBody.Parent = halloweenPage
 
     toggleHallowRaidBtn = Instance.new("TextButton")
@@ -2295,6 +2300,21 @@ do
     diffHardcoreBtn.MouseButton1Click:Connect(function() hallowDifficulty = "Hardcore"; updateDiffButtons() end)
     updateDiffButtons()
 
+    local toggleRepeatBtn = Instance.new("TextButton")
+    toggleRepeatBtn.Font = Enum.Font.SourceSansBold
+    toggleRepeatBtn.TextSize = 12
+    toggleRepeatBtn.TextColor3 = Color3.new(1, 1, 1)
+    toggleRepeatBtn.Text = isHallowAutoRepeat and "🔄 ลงซ้ำอัตโนมัติเมื่อจบด่าน: เปิด (ON)" or "🔄 ลงซ้ำอัตโนมัติเมื่อจบด่าน: ปิด (OFF)"
+    toggleRepeatBtn.BackgroundColor3 = isHallowAutoRepeat and Color3.fromRGB(35, 140, 75) or Color3.fromRGB(90, 60, 110)
+    Instance.new("UICorner", toggleRepeatBtn).CornerRadius = UDim.new(0, 6)
+    placeButton(toggleRepeatBtn, hallowBody, 0, 12, 118, 1, -24)
+
+    toggleRepeatBtn.MouseButton1Click:Connect(function()
+        isHallowAutoRepeat = not isHallowAutoRepeat
+        toggleRepeatBtn.Text = isHallowAutoRepeat and "🔄 ลงซ้ำอัตโนมัติเมื่อจบด่าน: เปิด (ON)" or "🔄 ลงซ้ำอัตโนมัติเมื่อจบด่าน: ปิด (OFF)"
+        toggleRepeatBtn.BackgroundColor3 = isHallowAutoRepeat and Color3.fromRGB(35, 140, 75) or Color3.fromRGB(90, 60, 110)
+    end)
+
     local toggleSeenBtn = Instance.new("TextButton")
     toggleSeenBtn.Font = Enum.Font.SourceSansBold
     toggleSeenBtn.TextSize = 12
@@ -2302,7 +2322,7 @@ do
     toggleSeenBtn.Text = "👁️ สยบผีอัตโนมัติ (Auto Pacify / Seen: ON)"
     toggleSeenBtn.BackgroundColor3 = Color3.fromRGB(40, 80, 140)
     Instance.new("UICorner", toggleSeenBtn).CornerRadius = UDim.new(0, 6)
-    placeButton(toggleSeenBtn, hallowBody, 0, 12, 118, 1, -24)
+    placeButton(toggleSeenBtn, hallowBody, 0, 12, 156, 1, -24)
 
     toggleSeenBtn.MouseButton1Click:Connect(function()
         isHallowPacifySeen = not isHallowPacifySeen
@@ -2317,7 +2337,7 @@ do
     tpLedgerBtn.Text = "⚡ วาร์ปไปแท่นสมุดลงชื่อ (Guest Ledger)"
     tpLedgerBtn.BackgroundColor3 = Color3.fromRGB(110, 50, 140)
     Instance.new("UICorner", tpLedgerBtn).CornerRadius = UDim.new(0, 6)
-    placeButton(tpLedgerBtn, hallowBody, 0, 12, 156, 1, -24)
+    placeButton(tpLedgerBtn, hallowBody, 0, 12, 194, 1, -24)
 
     tpLedgerBtn.MouseButton1Click:Connect(function()
         local char = player.Character
@@ -2341,7 +2361,7 @@ do
     hallowStatusLabel.TextWrapped = true
     hallowStatusLabel.Text = "💤 ระบบออโต้ด่านฮาโลวีนปิดอยู่"
     Instance.new("UICorner", hallowStatusLabel).CornerRadius = UDim.new(0, 6)
-    placeButton(hallowStatusLabel, hallowBody, 0, 12, 196, 1, -24)
+    placeButton(hallowStatusLabel, hallowBody, 0, 12, 234, 1, -24)
     hallowStatusLabel.Size = UDim2.new(1, -24, 0, 40)
 
     local infoLabel = Instance.new("TextLabel")
@@ -2352,8 +2372,8 @@ do
     infoLabel.TextXAlignment = Enum.TextXAlignment.Left
     infoLabel.TextYAlignment = Enum.TextYAlignment.Top
     infoLabel.TextWrapped = true
-    infoLabel.Text = "📌 ข้อมูลการทำงาน (ห้อง 1 - 5):\n• ห้อง 1: เดินไปหน้าประตูรอประตูเปิด -> ไม่ตีมอน วาร์ปเข้าห้อง 2 ทันที\n• ห้อง 2: เปิดโลงศพเรื่อยๆ จนเจอกุญแจ (Key) เพื่อเปิดประตูห้อง 3\n• ห้อง 3: กำจัด Paper Effigies จนประตูเปิด -> ผ่านประตูไปตี Boss Paper Tailor\n• ห้อง 4: วาร์ปจุดไฟ/ตะเกียงให้ครบทุกจุด (หลบตัวอมตะ) -> ประตูห้อง 5 เปิด\n• ห้อง 5: เข้าสู่โรงน้ำชา (The Last Teahouse)"
-    infoLabel.Position = UDim2.new(0, 12, 0, 246)
+    infoLabel.Text = "📌 ข้อมูลการทำงาน (ห้อง 1 - 5):\n• ห้อง 1: เดินไปหน้าประตูรอประตูเปิด -> ไม่ตีมอน วาร์ปเข้าห้อง 2 ทันที\n• ห้อง 2: เปิดโลงศพเรื่อยๆ จนเจอกุญแจ (Key) เพื่อเปิดประตูห้อง 3\n• ห้อง 3: กำจัด Paper Effigies จนประตูเปิด -> ผ่านประตูไปตี Boss Paper Tailor\n• ห้อง 4: วาร์ปจุดไฟ/ตะเกียงให้ครบทุกจุด (หลบตัวอมตะ) -> ประตูห้อง 5 เปิด\n• ห้อง 5: โรงน้ำชา (ผ่านเข้าห้อง 6)\n• ห้อง 6: กำจัดมินิบอส Cerberus Jiangshi [Lv.90]\n• ห้อง 7-8: ดิ่งบ่อน้ำ The Throat & ผ่านงานเลี้ยงผีหิว\n• ห้อง 9: กำจัดบอสใหญ่ Hungry Ghost Matriarch [Lv.110]\n• ห้อง 10: รับของรางวัลที่กองผ้าและจบด่าน"
+    infoLabel.Position = UDim2.new(0, 12, 0, 284)
     infoLabel.Size = UDim2.new(1, -24, 0, 120)
     infoLabel.Parent = hallowBody
 
@@ -4017,17 +4037,390 @@ local hallowRaidTask = task.spawn(function()
                             end
 
                         -- ========================================================
-                        -- ROOM 5: โรงน้ำชา (The Last Teahouse) - จุดหมายของวันนี้!
+                        -- ROOM 5: โรงน้ำชา (The Last Teahouse - 末茶樓)
                         -- ========================================================
                         elseif currentRaidRoomIndex == 5 then
+                            local room5Model = activeRaidModel and activeRaidModel:FindFirstChild("A05_Teahouse")
+                            local door6 = activeRaidModel and activeRaidModel:FindFirstChild("A06_Kennel") and activeRaidModel.A06_Kennel:FindFirstChild("Scripted") and activeRaidModel.A06_Kennel.Scripted:FindFirstChild("HallowDoor")
+                            local room6Entry = activeRaidModel and activeRaidModel:FindFirstChild("A06_Kennel") and activeRaidModel.A06_Kennel:FindFirstChild("Markers") and activeRaidModel.A06_Kennel.Markers:FindFirstChild("HallowEntry")
+
+                            local isRoom6Open = false
+                            if door6 then
+                                local leafL6 = door6:FindFirstChild("LeafL")
+                                local leafR6 = door6:FindFirstChild("LeafR")
+                                if leafL6 and leafR6 and leafL6:IsA("BasePart") and leafR6:IsA("BasePart") then
+                                    if not leafL6.CanCollide or not leafR6.CanCollide or (leafL6.Position - leafR6.Position).Magnitude > 7.5 then
+                                        isRoom6Open = true
+                                    end
+                                end
+                                if door6:GetAttribute("Open") == true or door6:GetAttribute("Opened") == true then
+                                    isRoom6Open = true
+                                end
+                            end
+                            if not isRoom6Open and room6Entry and room6Entry:IsA("BasePart") then
+                                if (hrp.Position - room6Entry.Position).Magnitude < 40 then
+                                    isRoom6Open = true
+                                end
+                            end
+
+                            if not isRoom6Open and room5Model and os.clock() - lastRaidActionTime >= 0.8 then
+                                for _, prompt in ipairs(room5Model:GetDescendants()) do
+                                    if prompt:IsA("ProximityPrompt") and prompt.Enabled then
+                                        local act = (prompt.ActionText or ""):lower()
+                                        if not act:find("talk") and not act:find("shop") and not act:find("hide") then
+                                            local p = prompt.Parent:IsA("BasePart") and prompt.Parent or (prompt.Parent and prompt.Parent:FindFirstChildWhichIsA("BasePart", true))
+                                            if p then
+                                                lastRaidActionTime = os.clock()
+                                                hrp.CFrame = CFrame.new(p.Position + Vector3.new(0, 3, 0))
+                                                if typeof(fireproximityprompt) == "function" then
+                                                    fireproximityprompt(prompt)
+                                                end
+                                                break
+                                            end
+                                        end
+                                    end
+                                end
+                            end
+
+                            if isRoom6Open or timeInRoom >= 12.0 then
+                                if hallowStatusLabel then hallowStatusLabel.Text = "🍵 [5/10 末茶樓] ผ่านโรงน้ำชาแล้ว! มุ่งหน้าไปห้อง 6 (บอส Cerberus)..." end
+                                currentRaidRoomIndex = 6
+                                roomEnterTime = os.clock()
+                                lastRaidActionTime = os.clock()
+                                local nextPos = getRoomTargetPosition(6, activeRaidModel)
+                                if nextPos then
+                                    hrp.CFrame = CFrame.new(nextPos + Vector3.new(0, 3, 0))
+                                end
+                                task.wait(1.0)
+                            else
+                                if hallowStatusLabel then
+                                    hallowStatusLabel.Text = string.format("🍵 [5/10 末茶樓] กำลังผ่านโรงน้ำชา... (%.0fs)", timeInRoom)
+                                end
+                            end
+
+                        -- ========================================================
+                        -- ROOM 6: คอกสุนัขหยิน (บอส Cerberus Jiangshi [Lv.90])
+                        -- ========================================================
+                        elseif currentRaidRoomIndex == 6 then
+                            local room6Model = activeRaidModel and activeRaidModel:FindFirstChild("A06_Kennel")
+                            local cerberusBoss = nil
+                            local bestDist = math.huge
+                            local hrpPos = hrp.Position
+                            local npcsFolder = Workspace:FindFirstChild("Murim_NPCs")
+
+                            local function checkCerberus(npc)
+                                if isHallowFoe(npc) and isAlive(npc) then
+                                    local nLow = npc.Name:lower()
+                                    if nLow:find("cerberus") or nLow:find("hound") or nLow:find("dog") then
+                                        local part = getNPCRootPart(npc)
+                                        if part then
+                                            local d = (part.Position - hrpPos).Magnitude
+                                            if d < bestDist then
+                                                bestDist = d
+                                                cerberusBoss = npc
+                                            end
+                                        end
+                                    end
+                                end
+                            end
+
+                            if npcsFolder then
+                                for _, npc in ipairs(npcsFolder:GetChildren()) do checkCerberus(npc) end
+                            end
+                            if not cerberusBoss and room6Model then
+                                for _, desc in ipairs(room6Model:GetDescendants()) do
+                                    if desc:IsA("Model") then checkCerberus(desc) end
+                                end
+                            end
+                            if not cerberusBoss and npcsFolder then
+                                for _, npc in ipairs(npcsFolder:GetChildren()) do
+                                    if isHallowFoe(npc) and isAlive(npc) then
+                                        local part = getNPCRootPart(npc)
+                                        if part and (part.Position - hrpPos).Magnitude < 160 then
+                                            cerberusBoss = npc
+                                            break
+                                        end
+                                    end
+                                end
+                            end
+
+                            if cerberusBoss then
+                                lastRaidActionTime = os.clock()
+                                local targetPart = getNPCRootPart(cerberusBoss)
+                                if targetPart then
+                                    currentTarget = cerberusBoss
+                                    applyHitboxToNPC(cerberusBoss)
+                                    revealInvisibleNPC(cerberusBoss)
+                                    hrp.CFrame = targetPart.CFrame * CFrame.new(0, 0, 4)
+                                    combatRemote = combatRemote or findCombatRemote()
+                                    if combatRemote then
+                                        pcall(function() combatRemote:FireServer("Attack") end)
+                                    end
+                                    if isAutoArtifact and os.clock() - lastArtifactUsed >= artifactCooldown then
+                                        lastArtifactUsed = os.clock()
+                                        useArtifact(targetPart.Position)
+                                    end
+                                    if hallowStatusLabel then
+                                        hallowStatusLabel.Text = "🐕 [6/10 陰門獒院] กำลังกำจัดมินิบอส: Cerberus Jiangshi!"
+                                    end
+                                end
+                            else
+                                if os.clock() - lastRaidActionTime >= 3.5 or timeInRoom >= 25.0 then
+                                    if hallowStatusLabel then hallowStatusLabel.Text = "🐕 [6/10 陰門獒院] บอส Cerberus ตายแล้ว! มุ่งหน้าลงห้อง 7 (The Throat)..." end
+                                    currentRaidRoomIndex = 7
+                                    roomEnterTime = os.clock()
+                                    lastRaidActionTime = os.clock()
+                                    local nextPos = getRoomTargetPosition(7, activeRaidModel)
+                                    if nextPos then
+                                        hrp.CFrame = CFrame.new(nextPos + Vector3.new(0, 3, 0))
+                                    end
+                                    task.wait(1.0)
+                                else
+                                    if hallowStatusLabel then
+                                        hallowStatusLabel.Text = string.format("⏳ [6/10 陰門獒院] รอเกิด/ค้นหาบอส Cerberus... (%.0fs)", timeInRoom)
+                                    end
+                                end
+                            end
+
+                        -- ========================================================
+                        -- ROOM 7: บ่อน้ำดิ่งลงไปข้างล่าง (The Throat - 咽井)
+                        -- ========================================================
+                        elseif currentRaidRoomIndex == 7 then
+                            local room7Model = activeRaidModel and activeRaidModel:FindFirstChild("A07_Throat")
+                            local room8Entry = activeRaidModel and activeRaidModel:FindFirstChild("A08_Banquet") and activeRaidModel.A08_Banquet:FindFirstChild("Markers") and activeRaidModel.A08_Banquet.Markers:FindFirstChild("HallowEntry")
+
+                            if room7Model and os.clock() - lastRaidActionTime >= 0.8 then
+                                for _, prompt in ipairs(room7Model:GetDescendants()) do
+                                    if prompt:IsA("ProximityPrompt") and prompt.Enabled then
+                                        local act = (prompt.ActionText or ""):lower()
+                                        if not act:find("talk") and not act:find("shop") and not act:find("hide") then
+                                            local p = prompt.Parent:IsA("BasePart") and prompt.Parent or (prompt.Parent and prompt.Parent:FindFirstChildWhichIsA("BasePart", true))
+                                            if p then
+                                                lastRaidActionTime = os.clock()
+                                                hrp.CFrame = CFrame.new(p.Position + Vector3.new(0, 3, 0))
+                                                if typeof(fireproximityprompt) == "function" then
+                                                    fireproximityprompt(prompt)
+                                                end
+                                                break
+                                            end
+                                        end
+                                    end
+                                end
+                            end
+
+                            if timeInRoom >= 8.0 or (room8Entry and (hrp.Position - room8Entry.Position).Magnitude < 40) then
+                                if hallowStatusLabel then hallowStatusLabel.Text = "🕳️ [7/10 咽井] ดิ่งลงบ่อน้ำเรียบร้อย! มุ่งหน้าไปห้อง 8 (งานเลี้ยงผีหิว)..." end
+                                currentRaidRoomIndex = 8
+                                roomEnterTime = os.clock()
+                                lastRaidActionTime = os.clock()
+                                local nextPos = getRoomTargetPosition(8, activeRaidModel)
+                                if nextPos then
+                                    hrp.CFrame = CFrame.new(nextPos + Vector3.new(0, 3, 0))
+                                end
+                                task.wait(1.0)
+                            else
+                                if hallowStatusLabel then
+                                    hallowStatusLabel.Text = string.format("🕳️ [7/10 咽井] กำลังผ่านบ่อน้ำ The Throat... (%.0fs)", timeInRoom)
+                                end
+                            end
+
+                        -- ========================================================
+                        -- ROOM 8: งานเลี้ยงผีหิว (Banquet of the Hungry - 餓鬼宴)
+                        -- ========================================================
+                        elseif currentRaidRoomIndex == 8 then
+                            local room8Model = activeRaidModel and activeRaidModel:FindFirstChild("A08_Banquet")
+                            local door9 = activeRaidModel and activeRaidModel:FindFirstChild("A09_EmptyBelly") and activeRaidModel.A09_EmptyBelly:FindFirstChild("Scripted") and activeRaidModel.A09_EmptyBelly.Scripted:FindFirstChild("HallowDoor")
+                            
+                            local banquetFoe = nil
+                            local bestDist = math.huge
+                            local hrpPos = hrp.Position
+                            local npcsFolder = Workspace:FindFirstChild("Murim_NPCs")
+
+                            local function checkBanquetFoe(npc)
+                                if isHallowFoe(npc) and isAlive(npc) then
+                                    local part = getNPCRootPart(npc)
+                                    if part then
+                                        local d = (part.Position - hrpPos).Magnitude
+                                        if d < bestDist and d < 200 then
+                                            bestDist = d
+                                            banquetFoe = npc
+                                        end
+                                    end
+                                end
+                            end
+
+                            if npcsFolder then
+                                for _, npc in ipairs(npcsFolder:GetChildren()) do checkBanquetFoe(npc) end
+                            end
+                            if not banquetFoe and room8Model then
+                                for _, desc in ipairs(room8Model:GetDescendants()) do
+                                    if desc:IsA("Model") then checkBanquetFoe(desc) end
+                                end
+                            end
+
+                            if banquetFoe then
+                                lastRaidActionTime = os.clock()
+                                local targetPart = getNPCRootPart(banquetFoe)
+                                if targetPart then
+                                    currentTarget = banquetFoe
+                                    applyHitboxToNPC(banquetFoe)
+                                    revealInvisibleNPC(banquetFoe)
+                                    hrp.CFrame = targetPart.CFrame * CFrame.new(0, 0, 3)
+                                    combatRemote = combatRemote or findCombatRemote()
+                                    if combatRemote then
+                                        pcall(function() combatRemote:FireServer("Attack") end)
+                                    end
+                                    if isAutoArtifact and os.clock() - lastArtifactUsed >= artifactCooldown then
+                                        lastArtifactUsed = os.clock()
+                                        useArtifact(targetPart.Position)
+                                    end
+                                    if hallowStatusLabel then
+                                        hallowStatusLabel.Text = "🍽️ [8/10 餓鬼宴] กำลังกำจัดผีหิว Hungry Ghost ในงานเลี้ยง..."
+                                    end
+                                end
+                            else
+                                local isRoom9Open = false
+                                if door9 then
+                                    local leafL9 = door9:FindFirstChild("LeafL")
+                                    local leafR9 = door9:FindFirstChild("LeafR")
+                                    if leafL9 and leafR9 and leafL9:IsA("BasePart") and leafR9:IsA("BasePart") then
+                                        if not leafL9.CanCollide or not leafR9.CanCollide or (leafL9.Position - leafR9.Position).Magnitude > 7.5 then
+                                            isRoom9Open = true
+                                        end
+                                    end
+                                    if door9:GetAttribute("Open") == true or door9:GetAttribute("Opened") == true then
+                                        isRoom9Open = true
+                                    end
+                                end
+
+                                if isRoom9Open or os.clock() - lastRaidActionTime >= 3.5 or timeInRoom >= 20.0 then
+                                    if hallowStatusLabel then hallowStatusLabel.Text = "🍽️ [8/10 餓鬼宴] เคลียร์ห้องงานเลี้ยงแล้ว! มุ่งหน้าไปห้อง 9 (บอสใหญ่ Matriarch)..." end
+                                    currentRaidRoomIndex = 9
+                                    roomEnterTime = os.clock()
+                                    lastRaidActionTime = os.clock()
+                                    local nextPos = getRoomTargetPosition(9, activeRaidModel)
+                                    if nextPos then
+                                        hrp.CFrame = CFrame.new(nextPos + Vector3.new(0, 3, 0))
+                                    end
+                                    task.wait(1.0)
+                                else
+                                    if hallowStatusLabel then
+                                        hallowStatusLabel.Text = string.format("⏳ [8/10 餓鬼宴] ค้นหาผีหิวในงานเลี้ยง... (%.0fs)", timeInRoom)
+                                    end
+                                end
+                            end
+
+                        -- ========================================================
+                        -- ROOM 9: ท้องว่าง (บอสใหญ่ Hungry Ghost Matriarch [Lv.110])
+                        -- ========================================================
+                        elseif currentRaidRoomIndex == 9 then
+                            local room9Model = activeRaidModel and activeRaidModel:FindFirstChild("A09_EmptyBelly")
+                            local matriarchBoss = nil
+                            local bestDist = math.huge
+                            local hrpPos = hrp.Position
+                            local npcsFolder = Workspace:FindFirstChild("Murim_NPCs")
+
+                            local function checkMatriarch(npc)
+                                if isHallowFoe(npc) and isAlive(npc) then
+                                    local nLow = npc.Name:lower()
+                                    if nLow:find("matriarch") or nLow:find("mother") or nLow:find("queen") then
+                                        local part = getNPCRootPart(npc)
+                                        if part then
+                                            local d = (part.Position - hrpPos).Magnitude
+                                            if d < bestDist then
+                                                bestDist = d
+                                                matriarchBoss = npc
+                                            end
+                                        end
+                                    end
+                                end
+                            end
+
+                            if npcsFolder then
+                                for _, npc in ipairs(npcsFolder:GetChildren()) do checkMatriarch(npc) end
+                            end
+                            if not matriarchBoss and room9Model then
+                                for _, desc in ipairs(room9Model:GetDescendants()) do
+                                    if desc:IsA("Model") then checkMatriarch(desc) end
+                                end
+                            end
+                            if not matriarchBoss and npcsFolder then
+                                for _, npc in ipairs(npcsFolder:GetChildren()) do
+                                    if isHallowFoe(npc) and isAlive(npc) then
+                                        local part = getNPCRootPart(npc)
+                                        if part and (part.Position - hrpPos).Magnitude < 180 then
+                                            matriarchBoss = npc
+                                            break
+                                        end
+                                    end
+                                end
+                            end
+
+                            if matriarchBoss then
+                                lastRaidActionTime = os.clock()
+                                local targetPart = getNPCRootPart(matriarchBoss)
+                                if targetPart then
+                                    currentTarget = matriarchBoss
+                                    applyHitboxToNPC(matriarchBoss)
+                                    revealInvisibleNPC(matriarchBoss)
+                                    hrp.CFrame = targetPart.CFrame * CFrame.new(0, 0, 4)
+                                    combatRemote = combatRemote or findCombatRemote()
+                                    if combatRemote then
+                                        pcall(function() combatRemote:FireServer("Attack") end)
+                                    end
+                                    if isAutoArtifact and os.clock() - lastArtifactUsed >= artifactCooldown then
+                                        lastArtifactUsed = os.clock()
+                                        useArtifact(targetPart.Position)
+                                    end
+                                    if hallowStatusLabel then
+                                        hallowStatusLabel.Text = "👑 [9/10 空腹] กำลังกำจัดบอสใหญ่: Hungry Ghost Matriarch!"
+                                    end
+                                end
+                            else
+                                if os.clock() - lastRaidActionTime >= 3.5 or timeInRoom >= 30.0 then
+                                    if hallowStatusLabel then hallowStatusLabel.Text = "👑 [9/10 空腹] บอสใหญ่ตายแล้ว! มุ่งหน้าไปห้อง 10 (รับรางวัล)..." end
+                                    currentRaidRoomIndex = 10
+                                    roomEnterTime = os.clock()
+                                    lastRaidActionTime = os.clock()
+                                    local nextPos = getRoomTargetPosition(10, activeRaidModel)
+                                    if nextPos then
+                                        hrp.CFrame = CFrame.new(nextPos + Vector3.new(0, 3, 0))
+                                    end
+                                    task.wait(1.0)
+                                else
+                                    if hallowStatusLabel then
+                                        hallowStatusLabel.Text = string.format("⏳ [9/10 空腹] ค้นหาบอสใหญ่ Matriarch... (%.0fs)", timeInRoom)
+                                    end
+                                end
+                            end
+
+                        -- ========================================================
+                        -- ROOM 10: จบด่าน รับของรางวัล (The Moon Returns - 月歸)
+                        -- ========================================================
+                        elseif currentRaidRoomIndex == 10 then
+                            local room10Model = activeRaidModel and activeRaidModel:FindFirstChild("A10_MoonReturns")
+                            local clothHeap = room10Model and room10Model:FindFirstChild("Scripted") and room10Model.Scripted:FindFirstChild("HallowClothHeap")
+
+                            if clothHeap then
+                                local prompt = clothHeap:FindFirstChildWhichIsA("ProximityPrompt", true)
+                                if prompt and prompt.Enabled then
+                                    local p = prompt.Parent:IsA("BasePart") and prompt.Parent or clothHeap:FindFirstChildWhichIsA("BasePart")
+                                    if p then
+                                        hrp.CFrame = CFrame.new(p.Position + Vector3.new(0, 3, 0))
+                                        if typeof(fireproximityprompt) == "function" then
+                                            fireproximityprompt(prompt)
+                                        end
+                                    end
+                                end
+                            end
+
                             if hallowStatusLabel then
-                                hallowStatusLabel.Text = "🍵 [5/5 末茶樓] ผ่านถึงห้อง 5 (โรงน้ำชา) เรียบร้อยแล้ว! (ภารกิจวันนี้เสร็จสิ้น)"
+                                hallowStatusLabel.Text = "🏆 เคลียร์ครบ 10 ห้องสำเร็จ! ได้รับของรางวัลเรียบร้อย (รอวนรอบใหม่)..."
                             end
-                            local room5Pos = getRoomTargetPosition(5, activeRaidModel)
-                            if room5Pos and (hrp.Position - room5Pos).Magnitude > 15 then
-                                hrp.CFrame = CFrame.new(room5Pos + Vector3.new(0, 3, 0))
+
+                            if isHallowAutoRepeat then
+                                task.wait(4.0)
                             end
-                            task.wait(2.0)
                         end
                     end
                 end
