@@ -84,6 +84,7 @@ local currentRaidRoomIndex = 1
 local roomEnterTime = 0
 local lastRaidActionTime = 0
 local room3Phase = 1 -- 1 = kill effigies, 2 = kill Boss Paper Tailor
+local bossTailorFought = false
 local openedCoffins = {}
 local toggleHallowRaidBtn = nil
 local hallowStatusLabel = nil
@@ -3852,7 +3853,8 @@ local hallowRaidTask = task.spawn(function()
                             local function checkTailor(npc)
                                 if npc:IsA("Model") and npc.Parent then
                                     local nLow = npc.Name:lower()
-                                    if nLow:find("tailor") and not nLow:find("gu heng") and not nLow:find("an rou") then
+                                    local isTailor = nLow:find("tailor") or nLow:find("boss") or (nLow:find("paper") and not nLow:find("effigy"))
+                                    if isTailor and not nLow:find("gu heng") and not nLow:find("an rou") then
                                         local hum = npc:FindFirstChildOfClass("Humanoid")
                                         if hum and hum.Health > 0 then
                                             bossTailor = npc
@@ -3868,12 +3870,12 @@ local hallowRaidTask = task.spawn(function()
                                 for _, desc in ipairs(room3Model:GetDescendants()) do checkTailor(desc) end
                             end
 
-                            -- ถ้าบอส Paper Tailor เกิดแล้ว สลับเป็นเฟส 2 ทันที
+                            -- ถ้าพบบอส Paper Tailor แล้ว สลับเป็นเฟส 2 ทันที
                             if bossTailor then
                                 room3Phase = 2
                             end
 
-                            -- เฟส 1: ตี Paper Effigies จนกว่าประตูจะเปิด / บอสเกิด
+                            -- เฟส 1: ตี Paper Effigies จนหมด เพื่อเปิดประตูใน
                             if room3Phase == 1 then
                                 local bestEffigy = nil
                                 local bestDist = math.huge
@@ -3930,21 +3932,22 @@ local hallowRaidTask = task.spawn(function()
                                         end
                                     end
                                 else
-                                    -- มอนสเตอร์หุ่นกระดาษตายหมดแล้ว หรือไม่พบตัว ให้มุ่งหน้าไปจุดบอส Paper Tailor
+                                    -- มอนสเตอร์หุ่นกระดาษหมดแล้ว เดินผ่านประตูในไปจุดเกิดบอส Paper Tailor
                                     if hallowStatusLabel then
-                                        hallowStatusLabel.Text = "✂️ [3/10 เฟส 1] Paper Effigy หมดแล้ว! มุ่งหน้าไปหาบอส Paper Tailor..."
+                                        hallowStatusLabel.Text = "✂️ [3/10 เฟส 1] Paper Effigy หมดแล้ว! กำลังเดินผ่านประตูไปหาบอส Paper Tailor..."
                                     end
                                     room3Phase = 2
                                     lastRaidActionTime = os.clock()
                                     if tailorSpot and tailorSpot:IsA("BasePart") then
                                         hrp.CFrame = CFrame.new(tailorSpot.Position + Vector3.new(0, 3, 0))
                                     end
-                                    task.wait(1.0)
+                                    task.wait(1.5)
                                 end
 
                             -- เฟส 2: กำจัด Boss Paper Tailor
                             else
                                 if bossTailor then
+                                    bossTailorFought = true
                                     lastRaidActionTime = os.clock()
                                     local targetPart = getNPCRootPart(bossTailor)
                                     if targetPart then
@@ -3963,11 +3966,11 @@ local hallowRaidTask = task.spawn(function()
                                         local hum = bossTailor:FindFirstChildOfClass("Humanoid")
                                         local hpText = hum and string.format(" (HP: %.0f)", hum.Health) or ""
                                         if hallowStatusLabel then
-                                            hallowStatusLabel.Text = "👑 [3/10 เฟส 2] กำลังกำจัดบอส: Paper Tailor" .. hpText .. "!"
+                                            hallowStatusLabel.Text = "👑 [3/10 เฟส 2] กำลังกำจัดบอส: " .. bossTailor.Name .. hpText .. "!"
                                         end
                                     end
                                 else
-                                    -- ตรวจสอบว่าบอสถูกกำจัดหรือยัง หรือประตูห้อง 4 เปิดหรือยัง
+                                    -- ตรวจสอบประตูไปห้อง 4 (A04_WatchmanStreet)
                                     local doorToRoom4 = room3Model and room3Model:FindFirstChild("Scripted") and room3Model.Scripted:FindFirstChild("HallowDoor")
                                     local isDoor4Open = false
                                     if doorToRoom4 then
@@ -3983,23 +3986,25 @@ local hallowRaidTask = task.spawn(function()
                                         end
                                     end
 
-                                    -- ย้ายไปห้อง 4 เมื่อบอสตายและประตูเปิด (หรือบอสหายไปหลังจากการสู้)
-                                    if isDoor4Open or (os.clock() - lastRaidActionTime >= 3.0 and timeInRoom >= 10.0) then
+                                    -- ย้ายไปห้อง 4 เฉพาะเมื่อเคยเจอบอสแล้วและบอสตาย หรือประตูห้อง 4 เปิดแล้วเท่านั้น (ห้ามข้ามเองเด็ดขาด!)
+                                    if isDoor4Open or (bossTailorFought and (os.clock() - lastRaidActionTime >= 3.0)) then
                                         if hallowStatusLabel then hallowStatusLabel.Text = "🚪 [3/10 紙紮鋪] บอส Paper Tailor ถูกกำจัดแล้ว! มุ่งหน้าไปห้อง 4..." end
                                         currentRaidRoomIndex = 4
                                         roomEnterTime = os.clock()
                                         lastRaidActionTime = os.clock()
+                                        bossTailorFought = false
                                         local nextPos = getRoomTargetPosition(4, activeRaidModel)
                                         if nextPos then
                                             hrp.CFrame = CFrame.new(nextPos + Vector3.new(0, 3, 0))
                                         end
                                         task.wait(1.0)
                                     else
-                                        if tailorSpot and tailorSpot:IsA("BasePart") and (hrp.Position - tailorSpot.Position).Magnitude > 30 then
+                                        -- ยังไม่เจอบอส ให้เดินไปยืนที่ tailorSpot เพื่อทริกเกอร์ให้บอสเกิด
+                                        if tailorSpot and tailorSpot:IsA("BasePart") and (hrp.Position - tailorSpot.Position).Magnitude > 8 then
                                             hrp.CFrame = CFrame.new(tailorSpot.Position + Vector3.new(0, 3, 0))
                                         end
                                         if hallowStatusLabel then
-                                            hallowStatusLabel.Text = string.format("⏳ [3/10 เฟส 2] รอเกิด/ค้นหาบอส Paper Tailor... (%.0fs)", timeInRoom)
+                                            hallowStatusLabel.Text = string.format("⏳ [3/10 เฟส 2] เดินผ่านประตู/รอเกิดบอส Paper Tailor... (%.0fs)", timeInRoom)
                                         end
                                     end
                                 end
