@@ -3949,12 +3949,12 @@ local hallowRaidTask = task.spawn(function()
                                             useArtifact(targetPart.Position)
                                         end
                                         if hallowStatusLabel then
-                                            hallowStatusLabel.Text = "👑 [3/5 เฟส 2] กำลังกำจัดบอส: Paper Tailor!"
+                                            hallowStatusLabel.Text = "👑 [3/10 เฟส 2] กำลังกำจัดบอส: Paper Tailor!"
                                         end
                                     end
                                 else
                                     if os.clock() - lastRaidActionTime >= 3.0 then
-                                        if hallowStatusLabel then hallowStatusLabel.Text = "🚪 [3/5 紙紮鋪] บอส Paper Tailor ถูกกำจัดแล้ว! มุ่งหน้าไปห้อง 4..." end
+                                        if hallowStatusLabel then hallowStatusLabel.Text = "🚪 [3/10 紙紮鋪] บอส Paper Tailor ถูกกำจัดแล้ว! มุ่งหน้าไปห้อง 4..." end
                                         currentRaidRoomIndex = 4
                                         roomEnterTime = os.clock()
                                         lastRaidActionTime = os.clock()
@@ -3964,13 +3964,13 @@ local hallowRaidTask = task.spawn(function()
                                         end
                                         task.wait(1.0)
                                     else
-                                        if hallowStatusLabel then hallowStatusLabel.Text = "⏳ [3/5 เฟส 2] รอยืนยันบอสตาย..." end
+                                        if hallowStatusLabel then hallowStatusLabel.Text = "⏳ [3/10 เฟส 2] รอยืนยันบอสตาย..." end
                                     end
                                 end
                             end
 
                         -- ========================================================
-                        -- ROOM 4: จุดไฟให้ครบทุกจุด (หลบตัวอมตะ) -> ประตูห้อง 5 เปิด
+                        -- ROOM 4: จุดตะเกียงศาลเจ้า 3 แห่ง (HallowStreetShrine) -> ประตูห้อง 5 เปิด
                         -- ========================================================
                         elseif currentRaidRoomIndex == 4 then
                             local room4Model = activeRaidModel and activeRaidModel:FindFirstChild("A04_WatchmanStreet")
@@ -3982,12 +3982,28 @@ local hallowRaidTask = task.spawn(function()
                                     isRoom5Open = true
                                 end
                             end
-                            if timeInRoom >= 25.0 then
+                            if room4Model and room4Model:FindFirstChild("Scripted") then
+                                for _, d in ipairs(room4Model.Scripted:GetChildren()) do
+                                    if d.Name == "HallowDoor" then
+                                        local leafL = d:FindFirstChild("LeafL")
+                                        local leafR = d:FindFirstChild("LeafR")
+                                        if leafL and leafR and leafL:IsA("BasePart") and leafR:IsA("BasePart") then
+                                            if not leafL.CanCollide or not leafR.CanCollide or (leafL.Position - leafR.Position).Magnitude > 7.5 then
+                                                isRoom5Open = true
+                                            end
+                                        end
+                                        if d:GetAttribute("Open") == true or d:GetAttribute("Opened") == true then
+                                            isRoom5Open = true
+                                        end
+                                    end
+                                end
+                            end
+                            if timeInRoom >= 35.0 then
                                 isRoom5Open = true
                             end
 
                             if isRoom5Open then
-                                if hallowStatusLabel then hallowStatusLabel.Text = "🏮 [4/5 更夫街] จุดไฟครบแล้ว / ประตูเปิด! มุ่งหน้าไปห้อง 5..." end
+                                if hallowStatusLabel then hallowStatusLabel.Text = "🏮 [4/10 更夫街] จุดไฟศาลเจ้าครบแล้ว / ประตูเปิด! มุ่งหน้าไปห้อง 5..." end
                                 currentRaidRoomIndex = 5
                                 roomEnterTime = os.clock()
                                 lastRaidActionTime = os.clock()
@@ -3997,41 +4013,65 @@ local hallowRaidTask = task.spawn(function()
                                 end
                                 task.wait(1.0)
                             else
-                                local targetFirePrompt = nil
-                                local targetFirePart = nil
+                                local targetShrinePrompt = nil
+                                local targetShrinePart = nil
+                                local unlitShrinesCount = 0
 
-                                if room4Model and os.clock() - lastRaidActionTime >= 0.7 then
+                                if room4Model and room4Model:FindFirstChild("Scripted") then
+                                    for _, shrine in ipairs(room4Model.Scripted:GetChildren()) do
+                                        if shrine.Name == "HallowStreetShrine" then
+                                            local prompt = shrine:FindFirstChildWhichIsA("ProximityPrompt", true)
+                                            if prompt and prompt.Enabled then
+                                                unlitShrinesCount = unlitShrinesCount + 1
+                                                if not targetShrinePrompt then
+                                                    local p = prompt.Parent:IsA("BasePart") and prompt.Parent or shrine:FindFirstChildWhichIsA("BasePart", true)
+                                                    if p then
+                                                        targetShrinePrompt = prompt
+                                                        targetShrinePart = p
+                                                    end
+                                                end
+                                            end
+                                        end
+                                    end
+                                end
+
+                                -- ถ้าไม่เจอใน HallowStreetShrine ให้หาจาก ProximityPrompt ทั่วไปแต่ข้ามจุดซ่อนตัว HallowHide
+                                if not targetShrinePrompt and room4Model and os.clock() - lastRaidActionTime >= 0.7 then
                                     for _, prompt in ipairs(room4Model:GetDescendants()) do
                                         if prompt:IsA("ProximityPrompt") and prompt.Enabled then
-                                            local pName = (prompt.ActionText or ""):lower() .. (prompt.ObjectText or ""):lower() .. (prompt.Parent and prompt.Parent.Name or ""):lower()
-                                            if not pName:find("watchman") and not pName:find("sedan") and not pName:find("talk") and not pName:find("shop") then
-                                                local p = prompt.Parent:IsA("BasePart") and prompt.Parent or (prompt.Parent and prompt.Parent:FindFirstChildWhichIsA("BasePart", true))
+                                            local pName = (prompt.ActionText or ""):lower() .. " " .. (prompt.ObjectText or ""):lower() .. " " .. (prompt.Parent and prompt.Parent.Name or ""):lower()
+                                            if not pName:find("hide") and not pName:find("crawl") and not pName:find("enter") and not pName:find("watchman") and not pName:find("sedan") and not pName:find("talk") and not pName:find("shop") then
+                                                local p = prompt.Parent:IsA("BasePart") and prompt.Parent or prompt.Parent:FindFirstChildWhichIsA("BasePart", true)
                                                 if p then
-                                                    targetFirePrompt = prompt
-                                                    targetFirePart = p
+                                                    targetShrinePrompt = prompt
+                                                    targetShrinePart = p
                                                     break
                                                 end
                                             end
                                         end
                                     end
+                                end
 
-                                    if targetFirePrompt and targetFirePart then
-                                        lastRaidActionTime = os.clock()
-                                        if hallowStatusLabel then hallowStatusLabel.Text = "🏮 [4/5 更夫街] กำลังจุดไฟ/โคมไฟให้ครบทุกจุด..." end
-                                        hrp.CFrame = CFrame.new(targetFirePart.Position + Vector3.new(0, 3, 0))
-                                        if typeof(fireproximityprompt) == "function" then
-                                            fireproximityprompt(targetFirePrompt)
-                                        else
-                                            pcall(function()
-                                                targetFirePrompt:InputHoldBegin()
-                                                task.wait(targetFirePrompt.HoldDuration or 0.1)
-                                                targetFirePrompt:InputHoldEnd()
-                                            end)
-                                        end
-                                    else
-                                        if hallowStatusLabel then
-                                            hallowStatusLabel.Text = string.format("🔍 [4/5 更夫街] ตรวจหาจุดไฟในถนนคนเคาะเกราะ... (%.0fs)", timeInRoom)
-                                        end
+                                if targetShrinePrompt and targetShrinePart then
+                                    lastRaidActionTime = os.clock()
+                                    if hallowStatusLabel then
+                                        hallowStatusLabel.Text = string.format("🏮 [4/10 更夫街] กำลังจุดตะเกียงศาลเจ้า (เหลืออีก %d จุด)...", math.max(1, unlitShrinesCount))
+                                    end
+                                    hrp.CFrame = CFrame.new(targetShrinePart.Position + Vector3.new(0, 3, 0))
+                                    if typeof(fireproximityprompt) == "function" then
+                                        fireproximityprompt(targetShrinePrompt)
+                                    end
+                                    pcall(function()
+                                        targetShrinePrompt:InputHoldBegin()
+                                        task.wait(targetShrinePrompt.HoldDuration or 4.0)
+                                        targetShrinePrompt:InputHoldEnd()
+                                    end)
+                                else
+                                    if unlitShrinesCount == 0 and timeInRoom >= 5.0 then
+                                        isRoom5Open = true
+                                    end
+                                    if hallowStatusLabel then
+                                        hallowStatusLabel.Text = string.format("🔍 [4/10 更夫街] กำลังตรวจหาศาลเจ้าที่ยังไม่จุดไฟ... (%.0fs)", timeInRoom)
                                     end
                                 end
                             end
@@ -4399,23 +4439,23 @@ local hallowRaidTask = task.spawn(function()
                         -- ========================================================
                         elseif currentRaidRoomIndex == 10 then
                             local room10Model = activeRaidModel and activeRaidModel:FindFirstChild("A10_MoonReturns")
-                            local clothHeap = room10Model and room10Model:FindFirstChild("Scripted") and room10Model.Scripted:FindFirstChild("HallowClothHeap")
+                            local moonbeam = room10Model and room10Model:FindFirstChild("Scripted") and room10Model.Scripted:FindFirstChild("HallowMoonbeam")
+                            local clothHeap = room10Model and room10Model:FindFirstChild("Scripted") and (room10Model.Scripted:FindFirstChild("HallowClothHeap") or room10Model.Scripted:FindFirstChild("HallowRobeHeap"))
 
-                            if clothHeap then
-                                local prompt = clothHeap:FindFirstChildWhichIsA("ProximityPrompt", true)
-                                if prompt and prompt.Enabled then
-                                    local p = prompt.Parent:IsA("BasePart") and prompt.Parent or clothHeap:FindFirstChildWhichIsA("BasePart")
-                                    if p then
-                                        hrp.CFrame = CFrame.new(p.Position + Vector3.new(0, 3, 0))
-                                        if typeof(fireproximityprompt) == "function" then
-                                            fireproximityprompt(prompt)
-                                        end
+                            local rewardTarget = moonbeam or clothHeap or (room10Model and room10Model:FindFirstChild("Markers") and room10Model.Markers:FindFirstChild("HallowEntry"))
+                            if rewardTarget then
+                                local prompt = rewardTarget:FindFirstChildWhichIsA("ProximityPrompt", true)
+                                local p = prompt and prompt.Parent:IsA("BasePart") and prompt.Parent or rewardTarget:FindFirstChildWhichIsA("BasePart", true)
+                                if p then
+                                    hrp.CFrame = CFrame.new(p.Position + Vector3.new(0, 3, 0))
+                                    if prompt and prompt.Enabled and typeof(fireproximityprompt) == "function" then
+                                        fireproximityprompt(prompt)
                                     end
                                 end
                             end
 
                             if hallowStatusLabel then
-                                hallowStatusLabel.Text = "🏆 เคลียร์ครบ 10 ห้องสำเร็จ! ได้รับของรางวัลเรียบร้อย (รอวนรอบใหม่)..."
+                                hallowStatusLabel.Text = "🏆 [10/10 月歸] เคลียร์ครบ 10 ห้องสำเร็จ! ได้รับของรางวัลเรียบร้อย (รอวนรอบใหม่)..."
                             end
 
                             if isHallowAutoRepeat then
