@@ -79,6 +79,7 @@ local currentRaidRoomIndex = 1
 local roomEnterTime = 0
 local lastRaidActionTime = 0
 local room3Phase = 1 -- 1 = kill effigies, 2 = kill Boss Paper Tailor
+local openedCoffins = {}
 local toggleHallowRaidBtn = nil
 local hallowStatusLabel = nil
 
@@ -2917,7 +2918,7 @@ local function autoSaveNPCPosition(npc)
 end
 
 local function stopAll()
-    if isAutoHallowRaid then isAutoHallowRaid = false currentRaidRoomIndex = 1 if toggleHallowRaidBtn and toggleHallowRaidBtn.Parent then toggleHallowRaidBtn.Text = "🎃 ออโต้ผ่านด่าน Hungry Ghost Gate (Auto: OFF)" toggleHallowRaidBtn.BackgroundColor3 = Color3.fromRGB(150, 45, 60) end end
+    if isAutoHallowRaid then isAutoHallowRaid = false currentRaidRoomIndex = 1 table.clear(openedCoffins) if toggleHallowRaidBtn and toggleHallowRaidBtn.Parent then toggleHallowRaidBtn.Text = "🎃 ออโต้ผ่านด่าน Hungry Ghost Gate (Auto: OFF)" toggleHallowRaidBtn.BackgroundColor3 = Color3.fromRGB(150, 45, 60) end end
     activeBossTarget = nil
     activeBossProbeCount = 0
     lastBossCFrame = nil
@@ -3594,39 +3595,82 @@ local hallowRaidTask = task.spawn(function()
                         local timeInRoom = os.clock() - roomEnterTime
 
                         -- ========================================================
-                        -- ROOM 1: เดินไปหน้าประตู รอประตูเปิด -> ไม่ตีมอน เข้าห้อง 2 เลย
+                        -- ROOM 1: เดินไปหน้าประตู A02_CoffinLodge.Scripted.HallowDoor (LeafL & LeafR)
+                        -- รอประตูเปิด -> ไม่ตีมอน วาร์ปเข้าห้อง 2 ทันที
                         -- ========================================================
                         if currentRaidRoomIndex == 1 then
-                            local room1Model = activeRaidModel and activeRaidModel:FindFirstChild("A01_Causeway")
-                            local markers = room1Model and room1Model:FindFirstChild("Markers")
-                            local doorSpot = markers and markers:FindFirstChild("HallowShrine")
-                            local room2Entry = activeRaidModel and activeRaidModel:FindFirstChild("A02_CoffinLodge") and activeRaidModel.A02_CoffinLodge:FindFirstChild("Markers") and activeRaidModel.A02_CoffinLodge.Markers:FindFirstChild("HallowEntry")
-                            local targetDoorPos = (doorSpot and doorSpot:IsA("BasePart") and doorSpot.Position)
-                                or (room2Entry and room2Entry:IsA("BasePart") and (room2Entry.Position - Vector3.new(0, 0, 20)))
-                                or (markers and markers:FindFirstChild("HallowEntry") and (markers.HallowEntry.Position + Vector3.new(0, 0, 120)))
+                            local door2 = activeRaidModel and activeRaidModel:FindFirstChild("A02_CoffinLodge") and activeRaidModel.A02_CoffinLodge:FindFirstChild("Scripted") and activeRaidModel.A02_CoffinLodge.Scripted:FindFirstChild("HallowDoor")
+                            local leafL = door2 and door2:FindFirstChild("LeafL")
+                            local leafR = door2 and door2:FindFirstChild("LeafR")
+                            local doorCenter = nil
+                            if leafL and leafR and leafL:IsA("BasePart") and leafR:IsA("BasePart") then
+                                doorCenter = (leafL.Position + leafR.Position) / 2
+                            elseif leafL and leafL:IsA("BasePart") then
+                                doorCenter = leafL.Position
+                            elseif door2 and door2:IsA("Model") then
+                                doorCenter = door2:GetPivot().Position
+                            end
 
-                            if targetDoorPos then
-                                if (hrp.Position - targetDoorPos).Magnitude > 8 then
-                                    hrp.CFrame = CFrame.new(targetDoorPos + Vector3.new(0, 3, 0))
+                            if not doorCenter then
+                                local m1 = activeRaidModel and activeRaidModel:FindFirstChild("A01_Causeway") and activeRaidModel.A01_Causeway:FindFirstChild("Markers")
+                                local shrine = m1 and m1:FindFirstChild("HallowShrine")
+                                if shrine and shrine:IsA("BasePart") then
+                                    doorCenter = shrine.Position
+                                end
+                            end
+
+                            if doorCenter then
+                                -- ยืนหน้าประตู HallowDoor ฝั่งห้อง 1 (Causeway)
+                                local waitPos = Vector3.new(doorCenter.X, doorCenter.Y + 2, doorCenter.Z - 6)
+                                if (hrp.Position - waitPos).Magnitude > 6 then
+                                    hrp.CFrame = CFrame.new(waitPos)
+                                end
+                            end
+
+                            -- ตรวจสอบว่าประตูเปิดแล้วหรือยัง
+                            local isDoorOpen = false
+                            if leafL and leafR and leafL:IsA("BasePart") and leafR:IsA("BasePart") then
+                                if not leafL.CanCollide or not leafR.CanCollide then
+                                    isDoorOpen = true
+                                elseif (leafL.Position - leafR.Position).Magnitude > 7.5 then
+                                    isDoorOpen = true
+                                end
+                            end
+                            if door2 then
+                                if door2:GetAttribute("Open") == true or door2:GetAttribute("Opened") == true or door2:GetAttribute("IsOpen") == true then
+                                    isDoorOpen = true
                                 end
                             end
 
                             -- เช็คว่ามอนสเตอร์โผล่มาแล้วหรือเวลารอหน้าประตูครบ (~7.5 วินาที)
                             local hasMobsSpawned = false
-                            if room1Model then
-                                for _, m in ipairs(room1Model:GetDescendants()) do
-                                    if m:IsA("Model") and isHallowFoe(m) and isAlive(m) then
+                            local npcsFolder = Workspace:FindFirstChild("Murim_NPCs")
+                            if npcsFolder then
+                                for _, m in ipairs(npcsFolder:GetChildren()) do
+                                    if isHallowFoe(m) and isAlive(m) then
                                         hasMobsSpawned = true
                                         break
                                     end
                                 end
                             end
+                            if not hasMobsSpawned and activeRaidModel then
+                                local room1 = activeRaidModel:FindFirstChild("A01_Causeway")
+                                if room1 then
+                                    for _, m in ipairs(room1:GetDescendants()) do
+                                        if m:IsA("Model") and isHallowFoe(m) and isAlive(m) then
+                                            hasMobsSpawned = true
+                                            break
+                                        end
+                                    end
+                                end
+                            end
 
-                            if hasMobsSpawned or timeInRoom >= 7.5 then
-                                if hallowStatusLabel then hallowStatusLabel.Text = "🚪 [1/5 滅燈堤] ประตูเปิดแล้ว! ไม่ต้องตีมอน มุ่งหน้าไปห้อง 2..." end
+                            if isDoorOpen or hasMobsSpawned or timeInRoom >= 7.5 then
+                                if hallowStatusLabel then hallowStatusLabel.Text = "🚪 [1/5 滅燈堤] ประตู HallowDoor (LeafL/R) เปิดแล้ว! มุ่งหน้าเข้าห้อง 2..." end
                                 currentRaidRoomIndex = 2
                                 roomEnterTime = os.clock()
                                 lastRaidActionTime = os.clock()
+                                table.clear(openedCoffins)
                                 local nextPos = getRoomTargetPosition(2, activeRaidModel)
                                 if nextPos then
                                     hrp.CFrame = CFrame.new(nextPos + Vector3.new(0, 3, 0))
@@ -3634,30 +3678,62 @@ local hallowRaidTask = task.spawn(function()
                                 task.wait(1.0)
                             else
                                 if hallowStatusLabel then
-                                    hallowStatusLabel.Text = string.format("⏳ [1/5 滅燈堤] ยืนรอหน้าประตูให้เปิด... (%.1fs/7.5s)", timeInRoom)
+                                    hallowStatusLabel.Text = string.format("⏳ [1/5 滅燈堤] ยืนรอหน้าประตู HallowDoor เปิด... (%.1fs/7.5s)", timeInRoom)
                                 end
                             end
 
                         -- ========================================================
                         -- ROOM 2: เปิดโลงศพเรื่อยๆ เพื่อหากุญแจ (Key) -> ประตูห้อง 3 เปิด
+                        -- (กรองข้ามโลงซ่อนตัว HallowHideCoffin 100% + ปลดล็อกหากนั่ง/ติดในโลง)
                         -- ========================================================
                         elseif currentRaidRoomIndex == 2 then
                             local room2Model = activeRaidModel and activeRaidModel:FindFirstChild("A02_CoffinLodge")
+                            local door3 = activeRaidModel and activeRaidModel:FindFirstChild("A03_EffigyShop") and activeRaidModel.A03_EffigyShop:FindFirstChild("Scripted") and activeRaidModel.A03_EffigyShop.Scripted:FindFirstChild("HallowDoor")
                             local room3Entry = activeRaidModel and activeRaidModel:FindFirstChild("A03_EffigyShop") and activeRaidModel.A03_EffigyShop:FindFirstChild("Markers") and activeRaidModel.A03_EffigyShop.Markers:FindFirstChild("HallowEntry")
                             
+                            -- แก้บัคถ้าตัวละครเผลอนั่งหรือติดในโลงซ่อน
+                            local hum = char:FindFirstChildOfClass("Humanoid")
+                            if hum and hum.Sit then
+                                hum.Sit = false
+                                hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+                            end
+
+                            -- ตรวจสอบว่าประตูด่าน 3 เปิดแล้วหรือยัง
                             local isRoom3Open = false
-                            if room3Entry and room3Entry:IsA("BasePart") then
-                                local d = (hrp.Position - room3Entry.Position).Magnitude
-                                if d < 40 then
+                            if door3 then
+                                local leafL3 = door3:FindFirstChild("LeafL")
+                                local leafR3 = door3:FindFirstChild("LeafR")
+                                if leafL3 and leafR3 and leafL3:IsA("BasePart") and leafR3:IsA("BasePart") then
+                                    if not leafL3.CanCollide or not leafR3.CanCollide or (leafL3.Position - leafR3.Position).Magnitude > 7.5 then
+                                        isRoom3Open = true
+                                    end
+                                end
+                                if door3:GetAttribute("Open") == true or door3:GetAttribute("Opened") == true or door3:GetAttribute("IsOpen") == true then
                                     isRoom3Open = true
                                 end
                             end
-                            if timeInRoom >= 25.0 then
-                                isRoom3Open = true
+                            if not isRoom3Open and room3Entry and room3Entry:IsA("BasePart") then
+                                if (hrp.Position - room3Entry.Position).Magnitude < 40 then
+                                    isRoom3Open = true
+                                end
                             end
 
-                            if isRoom3Open then
-                                if hallowStatusLabel then hallowStatusLabel.Text = "🔑 [2/5 義莊] ได้กุญแจแล้ว / ประตูเปิด! มุ่งหน้าไปห้อง 3..." end
+                            -- เช็คว่ามี Key ในตัวหรือในกระเป๋าไหม
+                            local hasKey = false
+                            local bp = player:FindFirstChild("Backpack")
+                            if bp then
+                                for _, item in ipairs(bp:GetChildren()) do
+                                    if item.Name:lower():find("key") then hasKey = true break end
+                                end
+                            end
+                            if not hasKey and char then
+                                for _, item in ipairs(char:GetChildren()) do
+                                    if item.Name:lower():find("key") then hasKey = true break end
+                                end
+                            end
+
+                            if isRoom3Open or hasKey or timeInRoom >= 28.0 then
+                                if hallowStatusLabel then hallowStatusLabel.Text = "🔑 [2/5 義莊] ได้กุญแจแล้ว / ประตูห้อง 3 เปิด! มุ่งหน้าไปห้อง 3..." end
                                 currentRaidRoomIndex = 3
                                 roomEnterTime = os.clock()
                                 lastRaidActionTime = os.clock()
@@ -3672,9 +3748,23 @@ local hallowRaidTask = task.spawn(function()
                                 local targetPart = nil
                                 if room2Model and os.clock() - lastRaidActionTime >= 0.7 then
                                     for _, prompt in ipairs(room2Model:GetDescendants()) do
-                                        if prompt:IsA("ProximityPrompt") and prompt.Enabled then
-                                            local pName = (prompt.ActionText or ""):lower() .. (prompt.ObjectText or ""):lower() .. (prompt.Parent and prompt.Parent.Name or ""):lower()
-                                            if not pName:find("talk") and not pName:find("shop") then
+                                        if prompt:IsA("ProximityPrompt") and prompt.Enabled and not openedCoffins[prompt] then
+                                            local pName = (prompt.Name or ""):lower()
+                                            local act = (prompt.ActionText or ""):lower()
+                                            local obj = (prompt.ObjectText or ""):lower()
+                                            local parent = prompt.Parent
+                                            local parentName = (parent and parent.Name or ""):lower()
+                                            local grandParent = parent and parent.Parent
+                                            local grandParentName = (grandParent and grandParent.Name or ""):lower()
+
+                                            -- กรองเด็ดขาด: ห้ามกดโลงซ่อนตัว (HallowHideCoffin, HideIn, HideEye, Hide)
+                                            local isHidingSpot = pName:find("hide") or act:find("hide") or obj:find("hide")
+                                                or parentName:find("hide") or grandParentName:find("hide")
+                                                or act:find("enter") or act:find("crawl") or act:find("climb")
+                                                or act:find("sit") or act:find("seat") or act:find("shelter")
+                                                or act:find("talk") or act:find("shop") or act:find("buy")
+
+                                            if not isHidingSpot then
                                                 local p = prompt.Parent:IsA("BasePart") and prompt.Parent or (prompt.Parent and prompt.Parent:FindFirstChildWhichIsA("BasePart", true))
                                                 if p then
                                                     targetPrompt = prompt
@@ -3687,7 +3777,8 @@ local hallowRaidTask = task.spawn(function()
 
                                     if targetPrompt and targetPart then
                                         lastRaidActionTime = os.clock()
-                                        if hallowStatusLabel then hallowStatusLabel.Text = "⚰️ [2/5 義莊] กำลังเปิดโลงศพหากุญแจ (Key)..." end
+                                        openedCoffins[targetPrompt] = true
+                                        if hallowStatusLabel then hallowStatusLabel.Text = "⚰️ [2/5 義莊] กำลังเปิดโลงศพหากุญแจ (Key)... (ข้ามโลงซ่อนตัว)" end
                                         hrp.CFrame = CFrame.new(targetPart.Position + Vector3.new(0, 3, 0))
                                         if typeof(fireproximityprompt) == "function" then
                                             fireproximityprompt(targetPrompt)
