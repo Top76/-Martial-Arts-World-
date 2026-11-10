@@ -50,175 +50,12 @@ local report, finishNotice = ...
 if type(_G.ArtificeGuiCleanup) == "function" then
     pcall(_G.ArtificeGuiCleanup)
 end
-
--- ============================================================================
--- 🎃 HALLOWEEN RAID CONSTANTS & HELPERS (FILE-LEVEL SCOPE TO SAVE LOCAL REGISTERS)
--- ============================================================================
-local HALLOW_GATE_CFRAME = CFrame.new(17958, 2, 2058)
-local HALLOW_FOE_KEYWORDS = {
-    "jiangshi", "driver", "effigy", "paper tailor", "hg_tailor", "hungry", "lure", "cerberus", "matriarch", "hg_", "raidmob"
-}
-local HALLOW_IGNORE_KEYWORDS = {
-    "watchman", "sedan", "faceless", "gu heng", "tailor gu heng", "an rou", "tailor an rou", "under", "guest", "ledger", "outfit", "cloth"
-}
-
-local HALLOW_ROOM_DATA = {
-    { name = "A01_Causeway", title = "Causeway of Unlit Lanterns", hz = "滅燈堤", offset = Vector3.new(0, 5, 96), maxZ = 232 },
-    { name = "A02_CoffinLodge", title = "The Coffin Lodge", hz = "義莊", offset = Vector3.new(0, 5, 309), maxZ = 386 },
-    { name = "A03_EffigyShop", title = "The Paper Effigy Shop", hz = "紙紮鋪", offset = Vector3.new(0, 5, 457), maxZ = 528 },
-    { name = "A04_WatchmanStreet", title = "Watchman's Street", hz = "更夫街", offset = Vector3.new(0, 5, 760), maxZ = 992 },
-    { name = "A05_Teahouse", title = "The Last Teahouse", hz = "末茶樓", offset = Vector3.new(0, -10, 1040), maxZ = 1088 },
-    { name = "A06_Kennel", title = "Kennel of the Yin Gate", hz = "陰門獒院", offset = Vector3.new(0, -10, 1163), maxZ = 1238 },
-    { name = "A07_Throat", title = "The Throat", hz = "咽井", offset = Vector3.new(0, -140, 1280), maxZ = 1322 },
-    { name = "A08_Banquet", title = "Banquet of the Hungry", hz = "餓鬼宴", offset = Vector3.new(0, -300, 1422), maxZ = 1526 },
-    { name = "A09_EmptyBelly", title = "The Empty Belly", hz = "空腹", offset = Vector3.new(0, -290, 1606), maxZ = 1686 },
-    { name = "A10_MoonReturns", title = "The Moon Returns", hz = "月歸", offset = Vector3.new(0, -290, 1680), maxZ = 2000 },
-}
-
-local function findGuestLedger()
-    local ws = game:GetService("Workspace")
-    for _, desc in ipairs(ws:GetDescendants()) do
-        if desc:IsA("ProximityPrompt") and desc.Enabled then
-            local act = (desc.ActionText or ""):lower()
-            local obj = (desc.ObjectText or ""):lower()
-            if obj:find("ledger") or act:find("ledger") or obj:find("guest") or act:find("guest") then
-                local pPart = desc.Parent:IsA("BasePart") and desc.Parent or (desc.Parent and desc.Parent:FindFirstChildWhichIsA("BasePart", true))
-                if pPart then
-                    return desc, pPart
-                end
-            end
-        end
-    end
-    for _, desc in ipairs(ws:GetDescendants()) do
-        local n = desc.Name:lower()
-        if n:find("guest") and n:find("ledger") then
-            local p = desc:IsA("BasePart") and desc or (desc:IsA("Model") and (desc.PrimaryPart or desc:FindFirstChildWhichIsA("BasePart", true)))
-            if p then
-                local prompt = desc:FindFirstChildWhichIsA("ProximityPrompt", true)
-                return prompt, p
-            end
-        end
-    end
-    return nil, nil
-end
-
-local function getActiveRaidInfo(p)
-    local ply = p or game:GetService("Players").LocalPlayer
-    local ws = game:GetService("Workspace")
-    local raidsFolder = ws:FindFirstChild("Raids")
-    local hrp = ply and ply.Character and ply.Character:FindFirstChild("HumanoidRootPart")
-    local origin = Vector3.new(40000, 700, 3000)
-    local activeRaidModel = nil
-
-    if raidsFolder and hrp then
-        local bestDist = math.huge
-        for _, child in ipairs(raidsFolder:GetChildren()) do
-            if child.Name:find("HallowGate") then
-                local p = child:IsA("Model") and (child.PrimaryPart or child:FindFirstChildWhichIsA("BasePart", true))
-                if p then
-                    local d = (p.Position - hrp.Position).Magnitude
-                    if d < bestDist then
-                        bestDist = d
-                        activeRaidModel = child
-                    end
-                elseif not activeRaidModel then
-                    activeRaidModel = child
-                end
-            end
-        end
-    end
-
-    if activeRaidModel then
-        if activeRaidModel.Name:find("2") then
-            origin = Vector3.new(40000, 700, 7000)
-        elseif activeRaidModel.Name:find("3") then
-            origin = Vector3.new(40000, 700, 11000)
-        else
-            origin = Vector3.new(40000, 700, 3000)
-        end
-    end
-
-    return activeRaidModel, origin
-end
-
-local function getRoomTargetPosition(roomIndex, activeRaidModel, origin)
-    local data = HALLOW_ROOM_DATA[roomIndex]
-    if not data then return nil end
-
-    if activeRaidModel then
-        local roomModel = activeRaidModel:FindFirstChild(data.name)
-        if roomModel and roomModel:IsA("Model") then
-            local cf, sz = roomModel:GetBoundingBox()
-            if sz.Magnitude > 0 then
-                return Vector3.new(cf.Position.X, cf.Position.Y - sz.Y / 2 + 4, cf.Position.Z)
-            end
-        end
-    end
-
-    return origin + data.offset
-end
-
-local function detectRoomIndexFromPosition(hrpPos, origin)
-    local relZ = hrpPos.Z - origin.Z
-    for i, data in ipairs(HALLOW_ROOM_DATA) do
-        if relZ <= data.maxZ then
-            return i
-        end
-    end
-    return #HALLOW_ROOM_DATA
-end
-
-local function gateDistance(angle)
-    return math.abs((angle + 180) % 360 - 180)
-end
-
--- ============================================================================
--- 🛸 FARM POSITIONING & NOCLIP HELPERS (FILE-LEVEL SCOPE TO SAVE LOCAL REGISTERS)
--- ============================================================================
-local farmPositionMode = "Above" -- "Above" (ลอยเหนือหัว) หรือ "Under" (มุดใต้ดิน)
-local farmDistance = 8.5
-local heightUnder = 8.5
-local lyingRotation = CFrame.Angles(math.rad(-90), 0, 0)
-local updateFarmPositionDisplay = nil -- callback to refresh UI buttons/labels
-
-local function updateFarmSettings(mode, dist)
-    if mode == "Above" or mode == "Under" then
-        farmPositionMode = mode
-    end
-    if dist then
-        farmDistance = math.max(2.0, math.min(25.0, dist))
-    end
-    local d = math.abs(farmDistance or 8.5)
-    if farmPositionMode == "Above" then
-        heightUnder = d
-        lyingRotation = CFrame.Angles(math.rad(-90), 0, 0)
-    else
-        heightUnder = -d
-        lyingRotation = CFrame.Angles(math.rad(90), 0, 0)
-    end
-    if updateFarmPositionDisplay then
-        pcall(updateFarmPositionDisplay)
-    end
-end
-
-local function getFarmOffsetCFrame()
-    local d = math.abs(farmDistance or 8.5)
-    if farmPositionMode == "Above" then
-        -- ลอยเหนือหัว นอนคว่ำหน้าหันมองพื้น
-        return CFrame.new(0, d, 0) * CFrame.Angles(math.rad(-90), 0, 0)
-    else
-        -- มุดใต้ดิน นอนหงายหน้ามองมอนสเตอร์
-        return CFrame.new(0, -d, 0) * CFrame.Angles(math.rad(90), 0, 0)
-    end
-end
-
 local function buildMaster()
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 local UserInputService = game:GetService("UserInputService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
-local CollectionService = game:GetService("CollectionService")
 local VirtualInputManager
 pcall(function() VirtualInputManager = game:GetService("VirtualInputManager") end)
 
@@ -256,19 +93,6 @@ local lastBossCFrame = nil
 local bossLootWaitUntil = 0
 local updateBossTimers = nil
 
--- 🎃 Halloween Gate Raid Variables
-local isAutoHallowRaid = false
-local hallowDifficulty = "Normal"
-local isHallowAutoRepeat = true
-local isHallowPacifySeen = true
-local lastSeenPacifyTime = 0
-local lastRaidCombatTime = 0
-local currentRaidRoomIndex = 1
-local roomPatrolCooldown = 0
-local toggleHallowRaidBtn = nil
-local hallowStatusLabel = nil
-local isHallowFoe = nil
-
 local KNOWN_BOSSES = {
     {
         Key = "Ye Wuxian, the Stringless Bow",
@@ -287,18 +111,6 @@ local KNOWN_BOSSES = {
         Name = "Patriarch Lou Kunshan",
         Alias = {"patriarch lou kunshan", "lou kunshan", "kunshan", "patriarch"},
         Level = 126
-    },
-    {
-        Key = "HG_Cerberus",
-        Name = "Cerberus Jiangshi",
-        Alias = {"cerberus", "hg_cerberus", "three-headed", "yin gate", "สามหัว"},
-        Level = 90
-    },
-    {
-        Key = "HG_Matriarch",
-        Name = "Hungry Ghost Matriarch",
-        Alias = {"matriarch", "hg_matriarch", "hungry ghost matriarch", "empty belly", "แม่ผีหิว"},
-        Level = 110
     }
 }
 
@@ -341,7 +153,7 @@ local function checkIsBossName(name)
     if name:find(",%s*the%s+") then
         return true
     end
-    if lower:find("dragon") or lower:find("boss") or lower:find("patriarch") or lower:find("kunshan") or lower:find("cerberus") or lower:find("matriarch") then
+    if lower:find("dragon") or lower:find("boss") or lower:find("patriarch") or lower:find("kunshan") then
         return true
     end
     if bossCache[name] then
@@ -476,78 +288,19 @@ local function revealInvisibleNPC(npc)
     end)
 end
 
-isHallowFoe = function(npc)
-    if not npc or not npc:IsA("Model") or not npc.Parent then return false end
-    if Players:GetPlayerFromCharacter(npc) then return false end
-    local hum = npc:FindFirstChildOfClass("Humanoid")
-    if not hum or hum.Health <= 0 then return false end
-
-    -- Town / friendly NPCs with Talk or Interaction prompts must NEVER be foes!
-    local prompt = npc:FindFirstChildWhichIsA("ProximityPrompt", true)
-    if prompt and prompt.Enabled then
-        local act = (prompt.ActionText or ""):lower()
-        if act:find("talk") or act:find("shop") or act:find("buy") or act:find("cloth") or act:find("outfit") or act:find("chat") then
-            return false
-        end
-    end
-
-    if npc:GetAttribute("unhurt") or npc:GetAttribute("HallowNoBar") then
-        return false
-    end
-
-    local name = npc.Name:lower()
-    for _, ign in ipairs(HALLOW_IGNORE_KEYWORDS) do
-        if name:find(ign, 1, true) then return false end
-    end
-
-    -- Raid boundary check: Raid is strictly located around X = 40000!
-    -- Mobs outside the raid zone (X != 40000) are town / overworld NPCs and MUST be ignored!
-    local p = npc.PrimaryPart or npc:FindFirstChild("HumanoidRootPart") or npc:FindFirstChildWhichIsA("BasePart")
-    if not p then return false end
-    if math.abs(p.Position.X - 40000) > 3000 then
-        return false
-    end
-
-    for _, kw in ipairs(HALLOW_FOE_KEYWORDS) do
-        if name:find(kw, 1, true) then return true end
-    end
-
-    local hrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
-    if hrp and math.abs(hrp.Position.X - 40000) < 3000 then
-        local npcsFolder = Workspace:FindFirstChild("Murim_NPCs")
-        if npcsFolder and npc.Parent == npcsFolder then
-            if (p.Position - hrp.Position).Magnitude < 300 then
-                return true
-            end
-        end
-    end
-
-    return false
-end
-
 local friendlyCache = setmetatable({}, { __mode = "k" })
 local function isFriendlyOrTalkable(npc)
     if not npc or not npc:IsA("Model") then return true end
     local cached = friendlyCache[npc]
     if cached ~= nil then return cached end
 
-    -- Interactive dialogue/quest NPCs have prompts with Talk / Shop
-    local prompt = npc:FindFirstChildWhichIsA("ProximityPrompt", true)
-    if prompt then
-        local act = (prompt.ActionText or ""):lower()
-        if act:find("talk") or act:find("shop") or act:find("buy") or act:find("chat") or act:find("outfit") or act:find("cloth") then
-            friendlyCache[npc] = true
-            return true
-        end
-    end
-
-    if checkIsBoss(npc) or isHallowFoe(npc) then
+    if checkIsBoss(npc) then
         friendlyCache[npc] = false
         return false
     end
 
-    -- 1. Any other ProximityPrompt
-    if prompt then
+    -- 1. ProximityPrompt check (interactive dialogue/quest NPCs have prompts)
+    if npc:FindFirstChildWhichIsA("ProximityPrompt", true) then
         friendlyCache[npc] = true
         return true
     end
@@ -600,9 +353,9 @@ local function isAlive(npc)
 	if not npc or not npc:IsA("Model") or not npc.Parent or not npc:IsDescendantOf(Workspace) then return false end
     if isFriendlyOrTalkable(npc) then return false end
 	local hum = npc:FindFirstChildOfClass("Humanoid")
-	if not hum then return false end
-	if hum.MaxHealth > 0 and hum.Health <= 0 then return false end
-	if hum:GetState() == Enum.HumanoidStateType.Dead then return false end
+	if hum and hum.MaxHealth > 0 then
+		if hum.Health <= 0 or hum:GetState() == Enum.HumanoidStateType.Dead then return false end
+	end
     if npc:GetAttribute("Dead") == true or npc:GetAttribute("IsDead") == true then return false end
 	local targetPart = getNPCRootPart(npc)
 	return targetPart ~= nil
@@ -812,7 +565,9 @@ local function listSignature(names, levels)
     return table.concat(parts, "|")
 end
 
--- ⚙️ ขนาด Hitbox มอนสเตอร์ (heightUnder, lyingRotation และ farmPositionMode อยู่ที่ File Scope)
+-- ⚙️ ตั้งค่าระยะมุดใต้ตัวมอนสเตอร์ และขนาด Hitbox
+local heightUnder = -10
+local lyingRotation = CFrame.Angles(math.rad(90), 0, 0)
 local HITBOX_SIZE = Vector3.new(12, 12, 12)
 local HITBOX_TRANSPARENCY = 0.7
 
@@ -995,16 +750,6 @@ end)
 -- 🎨 4. ส่วนปุ่มควบคุมและการตั้งค่า
 --------------------------------------------------------------------------------
 
-local togglePositionModeBtn = Instance.new("TextButton")
-togglePositionModeBtn.Name = "FarmPositionModeToggle"
-togglePositionModeBtn.Size = UDim2.new(1, -24, 0, 32)
-togglePositionModeBtn.Position = UDim2.new(0, 12, 1, -336)
-togglePositionModeBtn.Font = Enum.Font.SourceSansBold
-togglePositionModeBtn.TextSize = 13
-togglePositionModeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-togglePositionModeBtn.Parent = mainFrame
-Instance.new("UICorner", togglePositionModeBtn).CornerRadius = UDim.new(0, 6)
-
 local distLabel = Instance.new("TextLabel")
 distLabel.Name = "DistanceLabel"
 distLabel.Size = UDim2.new(1, -24, 0, 20)
@@ -1015,12 +760,17 @@ distLabel.Font = Enum.Font.SourceSansBold
 distLabel.TextSize = 13
 distLabel.Parent = mainFrame
 
+local function updateDistText()
+	distLabel.Text = string.format("📏 ระยะมุดใต้ตัว: %.1f studs", heightUnder)
+end
+updateDistText()
+
 local addDistBtn = Instance.new("TextButton")
 addDistBtn.Size = UDim2.new(0, 152, 0, 28)
 addDistBtn.Position = UDim2.new(0, 12, 1, -274)
 addDistBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 60)
 addDistBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-addDistBtn.Text = "⬆️ +0.5 (สูงขึ้น)"
+addDistBtn.Text = "⬆️ +0.5 (ตื้นขึ้น)"
 addDistBtn.Font = Enum.Font.SourceSansBold
 addDistBtn.TextSize = 12
 addDistBtn.Parent = mainFrame
@@ -1031,44 +781,19 @@ subDistBtn.Size = UDim2.new(0, 152, 0, 28)
 subDistBtn.Position = UDim2.new(1, -164, 1, -274)
 subDistBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 60)
 subDistBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-subDistBtn.Text = "⬇️ -0.5 (ต่ำลง)"
+subDistBtn.Text = "⬇️ -0.5 (ลึกลง)"
 subDistBtn.Font = Enum.Font.SourceSansBold
 subDistBtn.TextSize = 12
 subDistBtn.Parent = mainFrame
 Instance.new("UICorner", subDistBtn).CornerRadius = UDim.new(0, 6)
 
-local function updateDistText()
-	local modeThai = farmPositionMode == "Above" and "ลอยเหนือหัว (Above)" or "มุดใต้ดิน (Under)"
-	distLabel.Text = string.format("📏 ระยะห่าง [%s]: %.1f studs", modeThai, farmDistance)
-	if farmPositionMode == "Above" then
-		togglePositionModeBtn.Text = "🛸 โหมดตำแหน่ง: ลอยเหนือหัว (Above) ⬇️ มองพื้น"
-		togglePositionModeBtn.BackgroundColor3 = Color3.fromRGB(35, 125, 185)
-		addDistBtn.Text = "⬆️ +0.5 (สูงขึ้น)"
-		subDistBtn.Text = "⬇️ -0.5 (ต่ำลง)"
-	else
-		togglePositionModeBtn.Text = "⛏️ โหมดตำแหน่ง: มุดใต้ดิน (Under) ⬆️ มองฟ้า"
-		togglePositionModeBtn.BackgroundColor3 = Color3.fromRGB(130, 80, 40)
-		addDistBtn.Text = "⬆️ +0.5 (ตื้นขึ้น)"
-		subDistBtn.Text = "⬇️ -0.5 (ลึกลง)"
-	end
-end
-updateFarmPositionDisplay = updateDistText
-updateDistText()
-
-togglePositionModeBtn.MouseButton1Click:Connect(function()
-	if farmPositionMode == "Above" then
-		updateFarmSettings("Under", farmDistance)
-	else
-		updateFarmSettings("Above", farmDistance)
-	end
-end)
-
 addDistBtn.MouseButton1Click:Connect(function()
-	updateFarmSettings(nil, farmDistance + 0.5)
+	heightUnder = math.min(-0.5, heightUnder + 0.5)
+	updateDistText()
 end)
-
 subDistBtn.MouseButton1Click:Connect(function()
-	updateFarmSettings(nil, farmDistance - 0.5)
+	heightUnder = math.max(-15.0, heightUnder - 0.5)
+	updateDistText()
 end)
 
 local toggleHitboxBtn = Instance.new("TextButton")
@@ -1224,11 +949,11 @@ local function makePage(name, index, caption)
     pages[index] = page
     local tab = Instance.new("TextButton")
     tab.Name = name .. "Tab"
-    tab.Size = UDim2.new(1 / 5, -4, 0, 38)
-    tab.Position = UDim2.new(((index - 1) % 5) / 5, ((index - 1) % 5) * 2, 0, math.floor((index - 1) / 5) * 44)
+    tab.Size = UDim2.new(1 / 4, -4, 0, 38)
+    tab.Position = UDim2.new(((index - 1) % 4) / 4, ((index - 1) % 4) * 2, 0, math.floor((index - 1) / 4) * 44)
     tab.BorderSizePixel = 0
     tab.Font = Enum.Font.SourceSansBold
-    tab.TextSize = 12
+    tab.TextSize = 13
     tab.Text = caption
     tab.TextWrapped = true
     tab.Parent = tabsBar
@@ -1317,7 +1042,6 @@ local function parseBossInfo(bossItem)
     return bossName, timeText, cf
 end
 
-do
 local bossPage = makePage("Bosses", 2, "บอส")
 newHeading(bossPage, "ล่าบอสอัตโนมัติ & ตรวจจับเวลาบอส")
 
@@ -1657,7 +1381,6 @@ task.spawn(function()
         task.wait(1)
     end
 end)
-end
 
 local tpPage = makePage("Teleport", 3, "จุดวาร์ป")
 sectionHeading(tpHeaderLabel, tpPage, "จุดวาร์ป • บันทึกอัตโนมัติ • เลเวลสูง → ต่ำ")
@@ -1698,7 +1421,6 @@ local GradeNames = {
     [5]  = "Grade 5 (Thunder)",
 }
 
-do
 local hongmengPage = makePage("Hongmeng", 7, "Hongmeng")
 newHeading(hongmengPage, "พิธี Hongmeng & จุดเกิด Wild Qi")
 
@@ -1795,29 +1517,27 @@ searchHBtn.Font = Enum.Font.SourceSansBold
 searchHBtn.Parent = autoPage
 Instance.new("UICorner", searchHBtn).CornerRadius = UDim.new(0, 6)
 
-do
-    local guideBox = Instance.new("Frame")
-    guideBox.Name = "GuideBox"
-    guideBox.Size = UDim2.new(1, 0, 0, 110)
-    guideBox.Position = UDim2.new(0, 0, 0, 154)
-    guideBox.BackgroundColor3 = Color3.fromRGB(18, 23, 33)
-    guideBox.BorderSizePixel = 0
-    guideBox.Parent = autoPage
-    Instance.new("UICorner", guideBox).CornerRadius = UDim.new(0, 6)
+local guideBox = Instance.new("Frame")
+guideBox.Name = "GuideBox"
+guideBox.Size = UDim2.new(1, 0, 0, 110)
+guideBox.Position = UDim2.new(0, 0, 0, 154)
+guideBox.BackgroundColor3 = Color3.fromRGB(18, 23, 33)
+guideBox.BorderSizePixel = 0
+guideBox.Parent = autoPage
+Instance.new("UICorner", guideBox).CornerRadius = UDim.new(0, 6)
 
-    local guideLabel = Instance.new("TextLabel")
-    guideLabel.Size = UDim2.new(1, -16, 1, -12)
-    guideLabel.Position = UDim2.new(0, 8, 0, 6)
-    guideLabel.BackgroundTransparency = 1
-    guideLabel.Text = "• ระบบตรวจจับ Remote Hongmeng และถอดรหัสอัตโนมัติ\n• เฟส Weave: หมุนผนึกแก้ค่ายกลตามจังหวะ\n• เฟส Hold: สลับทิศทางลูกศรและกดย้อนกลับทันที\n• เฟส Trib: คำนวณเวลาและกด Ward สายฟ้าอัตโนมัติ"
-    guideLabel.TextColor3 = Color3.fromRGB(145, 160, 185)
-    guideLabel.TextSize = 11
-    guideLabel.Font = Enum.Font.SourceSans
-    guideLabel.TextWrapped = true
-    guideLabel.TextXAlignment = Enum.TextXAlignment.Left
-    guideLabel.TextYAlignment = Enum.TextYAlignment.Top
-    guideLabel.Parent = guideBox
-end
+local guideLabel = Instance.new("TextLabel")
+guideLabel.Size = UDim2.new(1, -16, 1, -12)
+guideLabel.Position = UDim2.new(0, 8, 0, 6)
+guideLabel.BackgroundTransparency = 1
+guideLabel.Text = "• ระบบตรวจจับ Remote Hongmeng และถอดรหัสอัตโนมัติ\n• เฟส Weave: หมุนผนึกแก้ค่ายกลตามจังหวะ\n• เฟส Hold: สลับทิศทางลูกศรและกดย้อนกลับทันที\n• เฟส Trib: คำนวณเวลาและกด Ward สายฟ้าอัตโนมัติ"
+guideLabel.TextColor3 = Color3.fromRGB(145, 160, 185)
+guideLabel.TextSize = 11
+guideLabel.Font = Enum.Font.SourceSans
+guideLabel.TextWrapped = true
+guideLabel.TextXAlignment = Enum.TextXAlignment.Left
+guideLabel.TextYAlignment = Enum.TextYAlignment.Top
+guideLabel.Parent = guideBox
 
 -- 2. Wild Qi Page Controls
 local refreshQiBtn = Instance.new("TextButton")
@@ -2011,7 +1731,6 @@ refreshQiButtons = function()
     qiScrollList.CanvasSize = UDim2.new(0, 0, 0, (#qiList * 36) + 10)
 end
 
-do
 -- Discord Webhook Task
 local HttpService = game:GetService("HttpService")
 local sendRequest = request or http_request or (syn and syn.request)
@@ -2106,7 +1825,6 @@ task.spawn(function()
         task.wait(5)
     end
 end)
-end
 
 -- Hongmeng Rules & Remote
 local hmRules = nil
@@ -2188,6 +1906,10 @@ local remotesFolder = ReplicatedStorage:FindFirstChild("Murim") and ReplicatedSt
 if remotesFolder then
     externalConnections[#externalConnections + 1] = remotesFolder.ChildAdded:Connect(bindHongmengRemote)
     externalConnections[#externalConnections + 1] = remotesFolder.ChildRemoved:Connect(bindHongmengRemote)
+end
+
+local function gateDistance(angle)
+    return math.abs((angle + 180) % 360 - 180)
 end
 
 local function setHongmengEnabled(enabled)
@@ -2313,251 +2035,8 @@ externalConnections[#externalConnections + 1] = RunService.Heartbeat:Connect(fun
         statusHLabel.Text = string.format("Trib · ส่ง %d · พลาด %d\n%s", wardSent, wardMissed, wardStatus)
     end
 end)
-end
 
---------------------------------------------------------------------------------
--- 🎃 Halloween Page (Index 8) - The Hungry Ghost Gate Auto Raid
---------------------------------------------------------------------------------
-do
-local halloweenPage = makePage("Halloween", 8, "🎃 ฮาโลวีน")
-newHeading(halloweenPage, "🎃 The Hungry Ghost Gate • Auto Raid")
-
-local hallowBody = Instance.new("ScrollingFrame")
-hallowBody.Name = "HallowContent"
-hallowBody.Position = UDim2.new(0, 0, 0, 44)
-hallowBody.Size = UDim2.new(1, 0, 1, -56)
-hallowBody.BackgroundTransparency = 1
-hallowBody.BorderSizePixel = 0
-hallowBody.ScrollBarThickness = 4
-hallowBody.CanvasSize = UDim2.new(0, 0, 0, 500)
-hallowBody.Parent = halloweenPage
-
-toggleHallowRaidBtn = Instance.new("TextButton")
-toggleHallowRaidBtn.Name = "ToggleHallowRaidBtn"
-toggleHallowRaidBtn.Font = Enum.Font.SourceSansBold
-toggleHallowRaidBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-toggleHallowRaidBtn.TextSize = 13
-toggleHallowRaidBtn.BackgroundColor3 = Color3.fromRGB(150, 45, 60)
-toggleHallowRaidBtn.Text = "🎃 ออโต้ผ่านด่าน Hungry Ghost Gate (Auto: OFF)"
-Instance.new("UICorner", toggleHallowRaidBtn).CornerRadius = UDim.new(0, 6)
-placeButton(toggleHallowRaidBtn, hallowBody, 0, 12, 0, 1, -24)
-
-local diffLabel = Instance.new("TextLabel")
-diffLabel.Size = UDim2.new(1, -24, 0, 22)
-diffLabel.Position = UDim2.new(0, 12, 0, 44)
-diffLabel.BackgroundTransparency = 1
-diffLabel.Text = "🎯 เลือกระดับความยาก (Difficulty):"
-diffLabel.TextColor3 = Color3.fromRGB(210, 220, 240)
-diffLabel.Font = Enum.Font.SourceSansBold
-diffLabel.TextSize = 13
-diffLabel.TextXAlignment = Enum.TextXAlignment.Left
-diffLabel.Parent = hallowBody
-
-local diffBtns = {}
-local diffNames = {"Normal", "Hard", "Hardcore"}
-local function updateDiffUI()
-    for _, dName in ipairs(diffNames) do
-        local btn = diffBtns[dName]
-        if btn then
-            if hallowDifficulty == dName then
-                btn.BackgroundColor3 = Color3.fromRGB(75, 95, 180)
-                btn.TextColor3 = Color3.fromRGB(255, 255, 255)
-            else
-                btn.BackgroundColor3 = Color3.fromRGB(40, 45, 60)
-                btn.TextColor3 = Color3.fromRGB(170, 180, 200)
-            end
-        end
-    end
-end
-
-for i, dName in ipairs(diffNames) do
-    local btn = Instance.new("TextButton")
-    btn.Name = "Diff_" .. dName
-    btn.Size = UDim2.new(1 / 3, -8, 0, 30)
-    btn.Position = UDim2.new((i - 1) / 3, 12 + (i - 1) * 4, 0, 70)
-    btn.Font = Enum.Font.SourceSansBold
-    btn.TextSize = 13
-    btn.Text = dName
-    btn.Parent = hallowBody
-    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
-    diffBtns[dName] = btn
-    btn.MouseButton1Click:Connect(function()
-        hallowDifficulty = dName
-        updateDiffUI()
-    end)
-end
-updateDiffUI()
-
-local toggleHallowRepeatBtn = Instance.new("TextButton")
-toggleHallowRepeatBtn.Font = Enum.Font.SourceSansBold
-toggleHallowRepeatBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-toggleHallowRepeatBtn.TextSize = 13
-toggleHallowRepeatBtn.BackgroundColor3 = Color3.fromRGB(45, 110, 70)
-toggleHallowRepeatBtn.Text = "🔄 ลงซ้ำอัตโนมัติเมื่อจบด่าน: เปิด (ON)"
-Instance.new("UICorner", toggleHallowRepeatBtn).CornerRadius = UDim.new(0, 6)
-placeButton(toggleHallowRepeatBtn, hallowBody, 0, 12, 108, 1, -24)
-
-toggleHallowRepeatBtn.MouseButton1Click:Connect(function()
-    isHallowAutoRepeat = not isHallowAutoRepeat
-    if isHallowAutoRepeat then
-        toggleHallowRepeatBtn.Text = "🔄 ลงซ้ำอัตโนมัติเมื่อจบด่าน: เปิด (ON)"
-        toggleHallowRepeatBtn.BackgroundColor3 = Color3.fromRGB(45, 110, 70)
-    else
-        toggleHallowRepeatBtn.Text = "🔄 ลงซ้ำอัตโนมัติเมื่อจบด่าน: ปิด (OFF)"
-        toggleHallowRepeatBtn.BackgroundColor3 = Color3.fromRGB(80, 55, 65)
-    end
-end)
-
-local toggleHallowSeenBtn = Instance.new("TextButton")
-toggleHallowSeenBtn.Font = Enum.Font.SourceSansBold
-toggleHallowSeenBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-toggleHallowSeenBtn.TextSize = 13
-toggleHallowSeenBtn.BackgroundColor3 = Color3.fromRGB(60, 85, 140)
-toggleHallowSeenBtn.Text = "👁️ สยบผีอัตโนมัติ (Auto Pacify / Seen: ON)"
-Instance.new("UICorner", toggleHallowSeenBtn).CornerRadius = UDim.new(0, 6)
-placeButton(toggleHallowSeenBtn, hallowBody, 0, 12, 146, 1, -24)
-
-toggleHallowSeenBtn.MouseButton1Click:Connect(function()
-    isHallowPacifySeen = not isHallowPacifySeen
-    if isHallowPacifySeen then
-        toggleHallowSeenBtn.Text = "👁️ สยบผีอัตโนมัติ (Auto Pacify / Seen: ON)"
-        toggleHallowSeenBtn.BackgroundColor3 = Color3.fromRGB(60, 85, 140)
-    else
-        toggleHallowSeenBtn.Text = "👁️ สยบผีอัตโนมัติ (Auto Pacify / Seen: OFF)"
-        toggleHallowSeenBtn.BackgroundColor3 = Color3.fromRGB(75, 60, 70)
-    end
-end)
-
-local tpHallowGateBtn = Instance.new("TextButton")
-tpHallowGateBtn.Font = Enum.Font.SourceSansBold
-tpHallowGateBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-tpHallowGateBtn.TextSize = 13
-tpHallowGateBtn.BackgroundColor3 = Color3.fromRGB(110, 60, 150)
-tpHallowGateBtn.Text = "⚡ วาร์ปไปแท่นสมุดลงชื่อ (Guest Ledger)"
-Instance.new("UICorner", tpHallowGateBtn).CornerRadius = UDim.new(0, 6)
-placeButton(tpHallowGateBtn, hallowBody, 0, 12, 184, 1, -24)
-
-tpHallowGateBtn.MouseButton1Click:Connect(function()
-    if hubUI.isBusy and hubUI.isBusy() then return end
-    local char = player.Character
-    local hrp = char and char:FindFirstChild("HumanoidRootPart")
-    if hrp then
-        local _, ledgerPart = findGuestLedger()
-        if ledgerPart then
-            hrp.CFrame = ledgerPart.CFrame * CFrame.new(0, 2, -4) * CFrame.Angles(0, math.rad(180), 0)
-        else
-            hrp.CFrame = HALLOW_GATE_CFRAME
-            task.wait(0.4)
-            local _, lp2 = findGuestLedger()
-            if lp2 then
-                hrp.CFrame = lp2.CFrame * CFrame.new(0, 2, -4) * CFrame.Angles(0, math.rad(180), 0)
-            end
-        end
-        tpHallowGateBtn.Text = "⚡ วาร์ปสำเร็จ!"
-        task.wait(1)
-        if not destroyed and tpHallowGateBtn.Parent then
-            tpHallowGateBtn.Text = "⚡ วาร์ปไปแท่นสมุดลงชื่อ (Guest Ledger)"
-        end
-    end
-end)
-
-local hallowPosBtn = Instance.new("TextButton")
-hallowPosBtn.Name = "HallowPosToggle"
-hallowPosBtn.Font = Enum.Font.SourceSansBold
-hallowPosBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-hallowPosBtn.TextSize = 13
-Instance.new("UICorner", hallowPosBtn).CornerRadius = UDim.new(0, 6)
-placeButton(hallowPosBtn, hallowBody, 0, 12, 226, 1, -24)
-
-local function updateHallowPosBtn()
-    if farmPositionMode == "Above" then
-        hallowPosBtn.Text = "🛸 ตำแหน่งตีผี: ลอยเหนือหัว (Above) ⬇️ มองพื้น"
-        hallowPosBtn.BackgroundColor3 = Color3.fromRGB(35, 125, 185)
-    else
-        hallowPosBtn.Text = "⛏️ ตำแหน่งตีผี: มุดใต้ดิน (Under) ⬆️ มองฟ้า"
-        hallowPosBtn.BackgroundColor3 = Color3.fromRGB(130, 80, 40)
-    end
-end
-updateHallowPosBtn()
-
-hallowPosBtn.MouseButton1Click:Connect(function()
-    if farmPositionMode == "Above" then
-        updateFarmSettings("Under", farmDistance)
-    else
-        updateFarmSettings("Above", farmDistance)
-    end
-    updateHallowPosBtn()
-end)
-
-local prevDisplayCb = updateFarmPositionDisplay
-updateFarmPositionDisplay = function()
-    if prevDisplayCb then pcall(prevDisplayCb) end
-    pcall(updateHallowPosBtn)
-end
-
-local hallowStatusBox = Instance.new("Frame")
-hallowStatusBox.Name = "StatusBox"
-hallowStatusBox.Size = UDim2.new(1, -24, 0, 52)
-hallowStatusBox.Position = UDim2.new(0, 12, 0, 268)
-hallowStatusBox.BackgroundColor3 = Color3.fromRGB(18, 22, 32)
-hallowStatusBox.BorderSizePixel = 0
-hallowStatusBox.Parent = hallowBody
-Instance.new("UICorner", hallowStatusBox).CornerRadius = UDim.new(0, 6)
-
-hallowStatusLabel = Instance.new("TextLabel")
-hallowStatusLabel.Name = "StatusLabel"
-hallowStatusLabel.Size = UDim2.new(1, -16, 1, -8)
-hallowStatusLabel.Position = UDim2.new(0, 8, 0, 4)
-hallowStatusLabel.BackgroundTransparency = 1
-hallowStatusLabel.Text = "💤 ระบบออโต้ด่านฮาโลวีนปิดอยู่"
-hallowStatusLabel.TextColor3 = Color3.fromRGB(240, 200, 90)
-hallowStatusLabel.Font = Enum.Font.SourceSansBold
-hallowStatusLabel.TextSize = 13
-hallowStatusLabel.TextWrapped = true
-hallowStatusLabel.Parent = hallowStatusBox
-
-local hallowInfo = Instance.new("TextLabel")
-hallowInfo.Size = UDim2.new(1, -24, 0, 140)
-hallowInfo.Position = UDim2.new(0, 12, 0, 328)
-hallowInfo.BackgroundColor3 = Color3.fromRGB(28, 33, 46)
-hallowInfo.TextColor3 = Color3.fromRGB(180, 195, 215)
-hallowInfo.Font = Enum.Font.SourceSans
-hallowInfo.TextSize = 12
-hallowInfo.TextXAlignment = Enum.TextXAlignment.Left
-hallowInfo.TextYAlignment = Enum.TextYAlignment.Top
-hallowInfo.TextWrapped = true
-hallowInfo.Text = "📌 ข้อมูลการทำงานของระบบ Auto:\n"
-    .. "• เลือกได้ทั้งลอยเหนือหัว (Above) หรือ มุดใต้ดิน (Under)\n"
-    .. "• โหมด Above นอนคว่ำมองพื้น ปลอดภัย 100% ไม่ติดขอบ/พื้น และไม่โดนผีโจมตี\n"
-    .. "• ขยาย Hitbox ผี 60 studs ตีโดนทุกห้อง\n"
-    .. "• ข้ามผีอมตะ (The Faceless Watchman & Red Sedan) อัตโนมัติ\n"
-    .. "• ตีบอสห้อง 6 (Cerberus [Lv.90]) และบอสใหญ่ห้อง 9 (Matriarch [Lv.110])\n"
-    .. "• ระบบ Noclip ป้องกันการโดนฟิสิกส์เด้งกลับขึ้นมาบนพื้น"
-hallowInfo.Parent = hallowBody
-Instance.new("UICorner", hallowInfo).CornerRadius = UDim.new(0, 6)
-local pad = Instance.new("UIPadding", hallowInfo)
-pad.PaddingLeft = UDim.new(0, 8)
-pad.PaddingRight = UDim.new(0, 8)
-pad.PaddingTop = UDim.new(0, 8)
-
-toggleHallowRaidBtn.MouseButton1Click:Connect(function()
-    isAutoHallowRaid = not isAutoHallowRaid
-    if isAutoHallowRaid then
-        currentRaidRoomIndex = 1
-        lastRaidCombatTime = 0
-        toggleHallowRaidBtn.Text = "🎃 ออโต้ผ่านด่าน Hungry Ghost Gate (Auto: ON)"
-        toggleHallowRaidBtn.BackgroundColor3 = Color3.fromRGB(35, 140, 75)
-        hallowStatusLabel.Text = "🚀 เริ่มต้นระบบ Auto Hungry Ghost Gate..."
-    else
-        currentRaidRoomIndex = 1
-        toggleHallowRaidBtn.Text = "🎃 ออโต้ผ่านด่าน Hungry Ghost Gate (Auto: OFF)"
-        toggleHallowRaidBtn.BackgroundColor3 = Color3.fromRGB(150, 45, 60)
-        hallowStatusLabel.Text = "💤 ปิดระบบ Auto Hungry Ghost Gate แล้ว"
-    end
-end)
-end
-
-local settingsPage = makePage("Settings", 9, "ตั้งค่า")
+local settingsPage = makePage("Settings", 8, "ตั้งค่า")
 newHeading(settingsPage, "ตั้งค่าการฟาร์ม")
 local settingsBody = Instance.new("ScrollingFrame")
 settingsBody.Name = "SettingsContent"
@@ -2566,18 +2045,17 @@ settingsBody.Size = UDim2.new(1, 0, 1, -56)
 settingsBody.BackgroundTransparency = 1
 settingsBody.BorderSizePixel = 0
 settingsBody.ScrollBarThickness = 4
-settingsBody.CanvasSize = UDim2.new(0, 0, 0, 480)
+settingsBody.CanvasSize = UDim2.new(0, 0, 0, 430)
 settingsBody.Parent = settingsPage
-placeButton(togglePositionModeBtn, settingsBody, 0, 12, 0, 1, -24)
 distLabel.Parent = settingsBody
-distLabel.Position = UDim2.new(0, 12, 0, 36)
-distLabel.Size = UDim2.new(1, -24, 0, 24)
+distLabel.Position = UDim2.new(0, 12, 0, 0)
+distLabel.Size = UDim2.new(1, -24, 0, 28)
 distLabel.TextXAlignment = Enum.TextXAlignment.Left
-distLabel.TextSize = 13
-placeButton(addDistBtn, settingsBody, 0, 12, 64, 0.5, -16)
-placeButton(subDistBtn, settingsBody, 0.5, 4, 64, 0.5, -16)
-placeButton(toggleHitboxBtn, settingsBody, 0, 12, 106, 1, -24)
-placeButton(toggleLootBtn, settingsBody, 0, 12, 148, 1, -24)
+distLabel.TextSize = 14
+placeButton(addDistBtn, settingsBody, 0, 12, 36, 0.5, -16)
+placeButton(subDistBtn, settingsBody, 0.5, 4, 36, 0.5, -16)
+placeButton(toggleHitboxBtn, settingsBody, 0, 12, 84, 1, -24)
+placeButton(toggleLootBtn, settingsBody, 0, 12, 132, 1, -24)
 
 local toggleLootFilterBtn = Instance.new("TextButton")
 toggleLootFilterBtn.Name = "LootFilterToggle"
@@ -2585,7 +2063,7 @@ toggleLootFilterBtn.Font = Enum.Font.SourceSansBold
 toggleLootFilterBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 toggleLootFilterBtn.TextSize = 13
 Instance.new("UICorner", toggleLootFilterBtn).CornerRadius = UDim.new(0, 6)
-placeButton(toggleLootFilterBtn, settingsBody, 0, 12, 190, 1, -24)
+placeButton(toggleLootFilterBtn, settingsBody, 0, 12, 180, 1, -24)
 local function displayLootFilter()
     local opt = LOOT_FILTER_OPTIONS[currentLootFilterIdx]
     toggleLootFilterBtn.Text = "🎁 กรองไอเทม: " .. (opt and opt.text or "ทั้งหมด (All)")
@@ -2602,7 +2080,7 @@ toggleParryBtn.Name = "AutoParryToggle"
 toggleParryBtn.Font = Enum.Font.SourceSansBold
 toggleParryBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 Instance.new("UICorner", toggleParryBtn).CornerRadius = UDim.new(0, 6)
-placeButton(toggleParryBtn, settingsBody, 0, 12, 238, 1, -24)
+placeButton(toggleParryBtn, settingsBody, 0, 12, 228, 1, -24)
 local function displayParry()
     toggleParryBtn.Text = isAutoParry and "🛡️ ป้องกันอัตโนมัติ (Auto Parry: ON)" or "🛡️ ป้องกันอัตโนมัติ (Auto Parry: OFF)"
     toggleParryBtn.BackgroundColor3 = isAutoParry and Color3.fromRGB(40, 110, 150) or Color3.fromRGB(90, 60, 110)
@@ -2623,7 +2101,7 @@ toggleArtifactBtn.Name = "AutoArtifactToggle"
 toggleArtifactBtn.Font = Enum.Font.SourceSansBold
 toggleArtifactBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 Instance.new("UICorner", toggleArtifactBtn).CornerRadius = UDim.new(0, 6)
-placeButton(toggleArtifactBtn, settingsBody, 0, 12, 286, 1, -24)
+placeButton(toggleArtifactBtn, settingsBody, 0, 12, 276, 1, -24)
 local function displayArtifact()
     toggleArtifactBtn.Text = isAutoArtifact and "📿 ใช้อาวุธวิเศษ (Auto Artifact: ON)" or "📿 ใช้อาวุธวิเศษ (Auto Artifact: OFF)"
     toggleArtifactBtn.BackgroundColor3 = isAutoArtifact and Color3.fromRGB(40, 110, 150) or Color3.fromRGB(90, 60, 110)
@@ -2643,7 +2121,7 @@ antiAFKButton.Name = "AntiAFKToggle"
 antiAFKButton.Font = Enum.Font.SourceSansBold
 antiAFKButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 Instance.new("UICorner", antiAFKButton).CornerRadius = UDim.new(0, 6)
-placeButton(antiAFKButton, settingsBody, 0, 12, 334, 1, -24)
+placeButton(antiAFKButton, settingsBody, 0, 12, 324, 1, -24)
 local function displayAntiAFK()
     antiAFKButton.Text = antiAFKEnabled and "ป้องกัน AFK (Anti-AFK: ON)" or "ป้องกัน AFK (Anti-AFK: OFF)"
     antiAFKButton.BackgroundColor3 = antiAFKEnabled and Color3.fromRGB(40, 110, 150) or Color3.fromRGB(90, 60, 110)
@@ -2672,7 +2150,7 @@ externalConnections[#externalConnections + 1] = player.Idled:Connect(function()
         warn("[Murim Anti-AFK] " .. tostring(message))
     end
 end)
-placeButton(destroyBtn, settingsBody, 0, 12, 382, 1, -24)
+placeButton(destroyBtn, settingsBody, 0, 12, 372, 1, -24)
 
 -- Keep Start/Stop accessible from every page.
 local footer = Instance.new("Frame")
@@ -2706,10 +2184,9 @@ end
 
 
 local function applyHitboxToNPC(npc)
-	if not isHitboxExpanded and not isAutoHallowRaid then return end
-    if not npc or not npc:IsA("Model") or isFriendlyOrTalkable(npc) then return end
+	if not isHitboxExpanded or not npc or not npc:IsA("Model") or isFriendlyOrTalkable(npc) then return end
 
-    if checkIsBossName(npc.Name) or (isHallowFoe and isHallowFoe(npc)) then
+    if checkIsBossName(npc.Name) then
         revealInvisibleNPC(npc)
     end
 
@@ -3102,15 +2579,6 @@ local function autoSaveNPCPosition(npc)
 end
 
 local function stopAll()
-    isAutoHallowRaid = false
-    currentRaidRoomIndex = 1
-    if toggleHallowRaidBtn and toggleHallowRaidBtn.Parent then
-        toggleHallowRaidBtn.Text = "🎃 ออโต้ผ่านด่าน Hungry Ghost Gate (Auto: OFF)"
-        toggleHallowRaidBtn.BackgroundColor3 = Color3.fromRGB(150, 45, 60)
-    end
-    if hallowStatusLabel and hallowStatusLabel.Parent then
-        hallowStatusLabel.Text = "💤 ระบบออโต้ด่านฮาโลวีนปิดอยู่"
-    end
     activeBossTarget = nil
     activeBossProbeCount = 0
     lastBossCFrame = nil
@@ -3126,24 +2594,6 @@ local function stopAll()
 
 	startBtn.Text = "เริ่มฟาร์ม"
 	startBtn.BackgroundColor3 = Color3.fromRGB(35, 150, 65)
-
-    local char = player.Character
-    if char then
-        for _, part in ipairs(char:GetDescendants()) do
-            if part:IsA("BasePart") and (part.Name == "HumanoidRootPart" or part.Name:find("Torso") or part.Name:find("Leg") or part.Name:find("Arm") or part.Name == "Head") then
-                part.CanCollide = true
-            end
-        end
-        local hrp = char:FindFirstChild("HumanoidRootPart")
-        if hrp then
-            hrp.AssemblyLinearVelocity = Vector3.zero
-            hrp.AssemblyAngularVelocity = Vector3.zero
-        end
-        local hum = char:FindFirstChildWhichIsA("Humanoid")
-        if hum and hum.Health > 0 then
-            hum:ChangeState(Enum.HumanoidStateType.GettingUp)
-        end
-    end
 end
 
 local function useArtifact(aimPosition)
@@ -3305,9 +2755,7 @@ local function startFarming()
 
 					if aliveStatus and targetCF and npcObj then
 						currentTarget = npcObj
-						hrp.CFrame = targetCF * getFarmOffsetCFrame()
-						hrp.AssemblyLinearVelocity = Vector3.zero
-						hrp.AssemblyAngularVelocity = Vector3.zero
+						hrp.CFrame = targetCF * CFrame.new(0, heightUnder, 0) * lyingRotation
 					else
 						currentTarget = nil
                         -- If we were away fighting a boss or died, and no selected monsters are currently loaded:
@@ -3661,333 +3109,6 @@ artifactTask = task.spawn(function()
     end
 end)
 
---------------------------------------------------------------------------------
--- 🎃 ระบบ Auto The Hungry Ghost Gate Raid
---------------------------------------------------------------------------------
-local hallowRaidTask = task.spawn(function()
-    while not destroyed do
-        if isAutoHallowRaid and not (hubUI.isBusy and hubUI.isBusy()) then
-            local char = player.Character
-            local hrp = char and char:FindFirstChild("HumanoidRootPart")
-            if hrp then
-                local isInsideRaid = math.abs(hrp.Position.X - 40000) < 3000
-
-                if not isInsideRaid then
-                    currentRaidRoomIndex = 1
-                    lastRaidCombatTime = 0
-                    local dialog = player.PlayerGui:FindFirstChild("MurimDialog")
-                    if dialog and dialog:FindFirstChild("Panel") then
-                        local sf = dialog.Panel:FindFirstChild("ScrollingFrame")
-                        local diffChoice = sf and sf:FindFirstChild(hallowDifficulty)
-                        if not diffChoice and sf then
-                            for _, child in ipairs(sf:GetChildren()) do
-                                if child.Name:lower() == hallowDifficulty:lower() then
-                                    diffChoice = child
-                                    break
-                                end
-                                local lbl = child:FindFirstChild("Label") or child:FindFirstChildWhichIsA("TextLabel", true)
-                                if lbl and lbl.Text:lower():find(hallowDifficulty:lower(), 1, true) then
-                                    diffChoice = child
-                                    break
-                                end
-                            end
-                        end
-                        if diffChoice then
-                            local targetBtn = (diffChoice:IsA("GuiButton") and diffChoice) or diffChoice:FindFirstChildWhichIsA("GuiButton", true) or diffChoice
-                            if hallowStatusLabel then hallowStatusLabel.Text = "🚪 กำลังกดเลือก: " .. hallowDifficulty .. "..." end
-                            if typeof(firesignal) == "function" and targetBtn:IsA("GuiButton") then
-                                pcall(function() firesignal(targetBtn.MouseButton1Click) end)
-                                pcall(function() firesignal(targetBtn.Activated) end)
-                            end
-                            pcall(function()
-                                if VirtualInputManager and targetBtn:IsA("GuiObject") and targetBtn.AbsoluteSize.X > 0 then
-                                    local cx = targetBtn.AbsolutePosition.X + targetBtn.AbsoluteSize.X / 2
-                                    local cy = targetBtn.AbsolutePosition.Y + targetBtn.AbsoluteSize.Y / 2
-                                    VirtualInputManager:SendMouseButtonEvent(cx, cy, 0, true, game, 1)
-                                    task.wait(0.05)
-                                    VirtualInputManager:SendMouseButtonEvent(cx, cy, 0, false, game, 1)
-                                end
-                            end)
-                            task.wait(1.5)
-                        end
-                    else
-                        -- Outside raid, dialog not open: Find and interact with Guest Ledger!
-                        local ledgerPrompt, ledgerPart = findGuestLedger()
-                        if ledgerPart then
-                            local dist = (hrp.Position - ledgerPart.Position).Magnitude
-                            if dist > 8 then
-                                if hallowStatusLabel then hallowStatusLabel.Text = "⚡ กำลังวาร์ปไปที่แท่นสมุด Guest Ledger..." end
-                                hrp.CFrame = ledgerPart.CFrame * CFrame.new(0, 2, -4) * CFrame.Angles(0, math.rad(180), 0)
-                                task.wait(0.5)
-                            else
-                                if hallowStatusLabel then hallowStatusLabel.Text = "📜 กำลังกด Sign the guest ledger..." end
-                                if ledgerPrompt then
-                                    if typeof(fireproximityprompt) == "function" then
-                                        fireproximityprompt(ledgerPrompt)
-                                    else
-                                        pcall(function()
-                                            ledgerPrompt:InputHoldBegin()
-                                            task.wait(ledgerPrompt.HoldDuration or 0.1)
-                                            ledgerPrompt:InputHoldEnd()
-                                        end)
-                                    end
-                                else
-                                    pcall(function()
-                                        if VirtualInputManager then
-                                            VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.E, false, game)
-                                            task.wait(0.1)
-                                            VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.E, false, game)
-                                        end
-                                    end)
-                                end
-                                task.wait(0.8)
-                            end
-                        else
-                            -- Ledger not yet found nearby: warp to Sunken Waystation area to stream in
-                            local gateDist = (hrp.Position - HALLOW_GATE_CFRAME.Position).Magnitude
-                            if gateDist > 35 then
-                                if hallowStatusLabel then hallowStatusLabel.Text = "⚡ กำลังวาร์ปไปลานพิธี (Sunken Waystation)..." end
-                                hrp.CFrame = HALLOW_GATE_CFRAME
-                                task.wait(0.6)
-                            else
-                                if hallowStatusLabel then hallowStatusLabel.Text = "🔍 กำลังค้นหาแท่นสมุด Guest Ledger..." end
-                                task.wait(0.5)
-                            end
-                        end
-                    end
-                else
-                    -- INSIDE RAID!
-                    local activeRaidModel, raidOrigin = getActiveRaidInfo()
-
-                    -- Auto detect current room if we just started or fell out of sync
-                    if currentRaidRoomIndex <= 1 then
-                        local detected = detectRoomIndexFromPosition(hrp.Position, raidOrigin)
-                        if detected > currentRaidRoomIndex then
-                            currentRaidRoomIndex = detected
-                        end
-                    end
-
-                    if isHallowPacifySeen and os.clock() - lastSeenPacifyTime >= 0.5 then
-                        lastSeenPacifyTime = os.clock()
-                        pcall(function()
-                            local seenRemote = ReplicatedStorage:FindFirstChild("HallowGateSeen")
-                            if seenRemote then
-                                local ids = {}
-                                for _, obj in ipairs(CollectionService:GetTagged("HallowWatched")) do
-                                    local hId = obj:GetAttribute("HallowId")
-                                    if hId then table.insert(ids, hId) end
-                                    if #ids >= 32 then break end
-                                end
-                                if #ids > 0 then
-                                    seenRemote:FireServer("seen", ids)
-                                end
-                            end
-                        end)
-                    end
-
-                    -- Check for drops or boss chest in raid
-                    local dropsFolder = Workspace:FindFirstChild("Murim_Drops")
-                    local raidDrop = nil
-                    if dropsFolder then
-                        for _, drop in ipairs(dropsFolder:GetChildren()) do
-                            if drop and drop.Parent then
-                                local dPart = drop:IsA("BasePart") and drop or (drop:IsA("Model") and (drop.PrimaryPart or drop:FindFirstChildWhichIsA("BasePart", true)))
-                                if dPart and (dPart.Position - hrp.Position).Magnitude <= 120 then
-                                    raidDrop = drop
-                                    break
-                                end
-                            end
-                        end
-                    end
-                    if raidDrop then
-                        if hallowStatusLabel then hallowStatusLabel.Text = "🎁 กำลังเก็บของรางวัล: " .. tostring(raidDrop.Name) end
-                        interactWithDrop(raidDrop)
-                        task.wait(0.1)
-                    else
-                        -- Find closest valid living foe
-                        local bestFoe = nil
-                        local bestDist = math.huge
-                        local hrpPos = hrp.Position
-
-                        local npcsFolder = Workspace:FindFirstChild("Murim_NPCs")
-                        if npcsFolder then
-                            for _, npc in ipairs(npcsFolder:GetChildren()) do
-                                if isHallowFoe(npc) and isAlive(npc) then
-                                    local part = getNPCRootPart(npc)
-                                    if part then
-                                        local d = (part.Position - hrpPos).Magnitude
-                                        if d <= 250 then
-                                            local nLow = npc.Name:lower()
-                                            if nLow:find("cerberus") or nLow:find("matriarch") then
-                                                d = d - 500
-                                            end
-                                            if d < bestDist then
-                                                bestDist = d
-                                                bestFoe = npc
-                                            end
-                                        end
-                                    end
-                                end
-                            end
-                        end
-
-                        if not bestFoe and activeRaidModel then
-                            for _, desc in ipairs(activeRaidModel:GetDescendants()) do
-                                if desc:IsA("Model") and isHallowFoe(desc) and isAlive(desc) then
-                                    local part = getNPCRootPart(desc)
-                                    if part then
-                                        local d = (part.Position - hrpPos).Magnitude
-                                        if d <= 250 then
-                                            local nLow = desc.Name:lower()
-                                            if nLow:find("cerberus") or nLow:find("matriarch") then
-                                                d = d - 500
-                                            end
-                                            if d < bestDist then
-                                                bestDist = d
-                                                bestFoe = desc
-                                            end
-                                        end
-                                    end
-                                end
-                            end
-                        end
-
-                        if bestFoe and isAlive(bestFoe) then
-                            lastRaidCombatTime = os.clock()
-                            local targetPart = getNPCRootPart(bestFoe)
-                            if targetPart then
-                                currentTarget = bestFoe
-                                applyHitboxToNPC(bestFoe)
-                                revealInvisibleNPC(bestFoe)
-
-                                hrp.CFrame = targetPart.CFrame * getFarmOffsetCFrame()
-                                hrp.AssemblyLinearVelocity = Vector3.zero
-                                hrp.AssemblyAngularVelocity = Vector3.zero
-
-                                combatRemote = combatRemote or findCombatRemote()
-                                if combatRemote then
-                                    pcall(function() combatRemote:FireServer("Attack") end)
-                                end
-
-                                if isAutoArtifact and os.clock() - lastArtifactUsed >= artifactCooldown then
-                                    lastArtifactUsed = os.clock()
-                                    useArtifact(targetPart.Position)
-                                end
-
-                                local bName = bestFoe.Name
-                                local bLow = bName:lower()
-                                local curRoom = HALLOW_ROOM_DATA[currentRaidRoomIndex]
-                                local roomTitle = curRoom and curRoom.hz or ("ห้อง " .. tostring(currentRaidRoomIndex))
-                                if hallowStatusLabel then
-                                    if bLow:find("cerberus") then
-                                        hallowStatusLabel.Text = string.format("🐕 [%d/10 %s] กำลังกำจัดบอส: Cerberus Jiangshi!", currentRaidRoomIndex, roomTitle)
-                                    elseif bLow:find("matriarch") then
-                                        hallowStatusLabel.Text = string.format("👑 [%d/10 %s] กำลังกำจัดบอสใหญ่: Hungry Ghost Matriarch!", currentRaidRoomIndex, roomTitle)
-                                    else
-                                        hallowStatusLabel.Text = string.format("⚔️ [%d/10 %s] กำลังกำจัด: %s", currentRaidRoomIndex, roomTitle, bName)
-                                    end
-                                end
-                            end
-                        else
-                            -- No living foes in current area!
-                            local idleTime = os.clock() - lastRaidCombatTime
-
-                            -- Special room mechanics while waiting (e.g. CoffinLodge awaken dormant coffins)
-                            if currentRaidRoomIndex == 2 and os.clock() - roomPatrolCooldown >= 0.8 then
-                                roomPatrolCooldown = os.clock()
-                                if activeRaidModel then
-                                    local lodge = activeRaidModel:FindFirstChild("A02_CoffinLodge")
-                                    if lodge then
-                                        for _, coffin in ipairs(lodge:GetDescendants()) do
-                                            if coffin:IsA("Model") and coffin.Name:lower():find("coffin") then
-                                                local prompt = coffin:FindFirstChildWhichIsA("ProximityPrompt", true)
-                                                if prompt and prompt.Enabled then
-                                                    if typeof(fireproximityprompt) == "function" then
-                                                        fireproximityprompt(prompt)
-                                                    end
-                                                else
-                                                    local cp = coffin.PrimaryPart or coffin:FindFirstChildWhichIsA("BasePart")
-                                                    if cp and (cp.Position - hrp.Position).Magnitude > 8 and (cp.Position - hrp.Position).Magnitude < 90 then
-                                                        hrp.CFrame = CFrame.new(cp.Position + Vector3.new(0, 3, 0))
-                                                        break
-                                                    end
-                                                end
-                                            end
-                                        end
-                                    end
-                                end
-                            end
-
-                            if idleTime >= 3.5 then
-                                -- Room is cleared! Advance to next room monotonically
-                                if currentRaidRoomIndex < #HALLOW_ROOM_DATA then
-                                    currentRaidRoomIndex = currentRaidRoomIndex + 1
-                                    lastRaidCombatTime = os.clock()
-                                    local nextData = HALLOW_ROOM_DATA[currentRaidRoomIndex]
-                                    local nextPos = getRoomTargetPosition(currentRaidRoomIndex, activeRaidModel, raidOrigin)
-                                    if nextPos then
-                                        if hallowStatusLabel then
-                                            hallowStatusLabel.Text = string.format("🚪 เคลียร์แล้ว! เดินหน้าไปห้อง %d/10: %s (%s)...", currentRaidRoomIndex, nextData.title, nextData.hz)
-                                        end
-                                        hrp.CFrame = CFrame.new(nextPos + Vector3.new(0, 3, 0))
-                                        task.wait(1.5) -- Allow StreamingEnabled to stream in new room
-                                    end
-                                else
-                                    -- Room 10 reached! Cleared whole raid!
-                                    if hallowStatusLabel then
-                                        hallowStatusLabel.Text = "🏆 เคลียร์ครบ 10 ห้องสำเร็จ! รอรับรางวัล / วนรอบใหม่..."
-                                    end
-                                    if not raidTimer and isHallowAutoRepeat then
-                                        task.wait(3.5)
-                                    end
-                                end
-                            else
-                                if hallowStatusLabel then
-                                    local curData = HALLOW_ROOM_DATA[currentRaidRoomIndex]
-                                    local cTitle = curData and string.format("%s (%s)", curData.title, curData.hz) or ("ห้อง " .. tostring(currentRaidRoomIndex))
-                                    hallowStatusLabel.Text = string.format("⏳ [%d/10] %s: กำลังตรวจหาผี / รอเกิด...", currentRaidRoomIndex, cTitle)
-                                end
-                            end
-                        end
-                    end
-                end
-            end
-            task.wait(0.04)
-        else
-            if hallowStatusLabel and hallowStatusLabel.Text ~= "💤 ระบบออโต้ด่านฮาโลวีนปิดอยู่" and not isAutoHallowRaid then
-                hallowStatusLabel.Text = "💤 ระบบออโต้ด่านฮาโลวีนปิดอยู่"
-            end
-            task.wait(0.5)
-        end
-    end
-end)
-
--- 🛡️ ระบบ Noclip และป้องกันฟิสิกส์เด้งกลับพื้นอัตโนมัติขณะฟาร์ม
-table.insert(externalConnections, RunService.Stepped:Connect(function()
-    if (isFarming or isAutoFarmBoss or isAutoHallowRaid) then
-        local char = player.Character
-        if char then
-            for _, part in ipairs(char:GetDescendants()) do
-                if part:IsA("BasePart") and part.CanCollide then
-                    part.CanCollide = false
-                end
-            end
-            local hrp = char:FindFirstChild("HumanoidRootPart")
-            if hrp then
-                hrp.AssemblyLinearVelocity = Vector3.zero
-                hrp.AssemblyAngularVelocity = Vector3.zero
-            end
-            local hum = char:FindFirstChildWhichIsA("Humanoid")
-            if hum and hum.Health > 0 then
-                local st = hum:GetState()
-                if st == Enum.HumanoidStateType.Freefall or st == Enum.HumanoidStateType.FallingDown then
-                    hum:ChangeState(Enum.HumanoidStateType.Physics)
-                end
-            end
-        end
-    end
-end))
-
 -- อีเวนต์ปุ่มเปิดปิด GUI
 toggleBtn.MouseButton1Click:Connect(function()
 	mainFrame.Visible = not mainFrame.Visible
@@ -4009,7 +3130,6 @@ local function cleanup()
     end
     isParrying = false
     if artifactTask then task.cancel(artifactTask) artifactTask = nil end
-    if hallowRaidTask then task.cancel(hallowRaidTask) hallowRaidTask = nil end
     restoreHitboxes()
     for _, conn in ipairs(folderConnections) do conn:Disconnect() end
     for _, conn in ipairs(externalConnections) do conn:Disconnect() end
