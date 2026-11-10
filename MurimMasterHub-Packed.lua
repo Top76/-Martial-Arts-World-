@@ -50,6 +50,194 @@ local report, finishNotice = ...
 if type(_G.ArtificeGuiCleanup) == "function" then
     pcall(_G.ArtificeGuiCleanup)
 end
+-- ============================================================================
+-- 🎃 HALLOWEEN RAID CONSTANTS & HELPERS (FILE-LEVEL SCOPE TO AVOID 200 REGISTER LIMIT)
+-- ============================================================================
+local HALLOW_GATE_CFRAME = CFrame.new(17958, 2, 2058)
+
+local HALLOW_FOE_KEYWORDS = {
+    "jiangshi", "driver", "effigy", "paper tailor", "hg_tailor", "hungry", "lure", "cerberus", "matriarch", "hg_", "raidmob", "ghost", "corpse", "zombie", "ghoul", "specter", "shadow", "paper", "hallow"
+}
+local HALLOW_IGNORE_KEYWORDS = {
+    "watchman", "sedan", "faceless", "gu heng", "tailor gu heng", "an rou", "tailor an rou", "under", "guest", "ledger", "outfit", "cloth"
+}
+
+local HALLOW_ROOM_DATA = {
+    { name = "A01_Causeway", title = "Causeway of Unlit Lanterns", hz = "滅燈堤" },
+    { name = "A02_CoffinLodge", title = "The Coffin Lodge", hz = "義莊" },
+    { name = "A03_EffigyShop", title = "The Paper Effigy Shop", hz = "紙紮鋪" },
+    { name = "A04_WatchmanStreet", title = "Watchman's Street", hz = "更夫街" },
+    { name = "A05_Teahouse", title = "The Last Teahouse", hz = "末茶樓" },
+}
+
+local isAutoHallowRaid = false
+local hallowDifficulty = "Normal"
+local isHallowAutoRepeat = false
+local isHallowPacifySeen = true
+local lastSeenPacifyTime = 0
+local currentRaidRoomIndex = 1
+local roomEnterTime = 0
+local lastRaidActionTime = 0
+local room3Phase = 1 -- 1 = kill effigies, 2 = kill Boss Paper Tailor
+local toggleHallowRaidBtn = nil
+local hallowStatusLabel = nil
+
+local function findGuestLedger()
+    local ws = game:GetService("Workspace")
+    for _, desc in ipairs(ws:GetDescendants()) do
+        if desc:IsA("ProximityPrompt") and desc.Enabled then
+            local act = (desc.ActionText or ""):lower()
+            local obj = (desc.ObjectText or ""):lower()
+            if obj:find("ledger") or act:find("ledger") or obj:find("guest") or act:find("guest") then
+                local pPart = desc.Parent:IsA("BasePart") and desc.Parent or (desc.Parent and desc.Parent:FindFirstChildWhichIsA("BasePart", true))
+                if pPart then
+                    return desc, pPart
+                end
+            end
+        end
+    end
+    for _, desc in ipairs(ws:GetDescendants()) do
+        local n = desc.Name:lower()
+        if n:find("guest") and n:find("ledger") then
+            local p = desc:IsA("BasePart") and desc or (desc:IsA("Model") and (desc.PrimaryPart or desc:FindFirstChildWhichIsA("BasePart", true)))
+            if p then
+                local prompt = desc:FindFirstChildWhichIsA("ProximityPrompt", true)
+                return prompt, p
+            end
+        end
+    end
+    return nil, nil
+end
+
+local function getActiveRaidModel()
+    local ws = game:GetService("Workspace")
+    local raidsFolder = ws:FindFirstChild("Raids")
+    if raidsFolder then
+        local hg1 = raidsFolder:FindFirstChild("HallowGate_1")
+        if hg1 then return hg1 end
+        for _, child in ipairs(raidsFolder:GetChildren()) do
+            if child.Name:find("HallowGate") then
+                return child
+            end
+        end
+    end
+    return nil
+end
+
+local function checkIsInsideRaid(ply)
+    if not ply then return false end
+    local pg = ply:FindFirstChild("PlayerGui")
+    if pg and pg:FindFirstChild("MurimHallowHUD") then
+        return true
+    end
+    local ws = game:GetService("Workspace")
+    local raids = ws:FindFirstChild("Raids")
+    local hrp = ply.Character and ply.Character:FindFirstChild("HumanoidRootPart")
+    if raids and hrp then
+        local hg = raids:FindFirstChild("HallowGate_1") or raids:FindFirstChildWhichIsA("Model")
+        if hg then
+            local pv = hg:GetPivot().Position
+            if (hrp.Position - pv).Magnitude < 4000 then
+                return true
+            end
+        end
+    end
+    if hrp and math.abs(hrp.Position.X - 40000) < 4000 then
+        return true
+    end
+    return false
+end
+
+local function getRoomTargetPosition(roomIndex, activeRaidModel)
+    local data = HALLOW_ROOM_DATA[roomIndex]
+    if not data then return nil end
+
+    if activeRaidModel then
+        local roomModel = activeRaidModel:FindFirstChild(data.name)
+        if roomModel then
+            local markers = roomModel:FindFirstChild("Markers")
+            if markers then
+                local entry = markers:FindFirstChild("HallowEntry")
+                if entry and entry:IsA("BasePart") then
+                    return entry.Position + Vector3.new(0, 3, 0)
+                elseif entry and entry:IsA("Attachment") then
+                    return entry.WorldPosition + Vector3.new(0, 3, 0)
+                end
+                local shrine = markers:FindFirstChild("HallowShrine")
+                if shrine and shrine:IsA("BasePart") then
+                    return shrine.Position + Vector3.new(0, 3, 0)
+                end
+            end
+            local zone = roomModel:FindFirstChild("HallowZone")
+            if zone and zone:IsA("BasePart") then
+                return Vector3.new(zone.Position.X, zone.Position.Y - zone.Size.Y / 2 + 3.5, zone.Position.Z)
+            end
+            if roomModel:IsA("Model") then
+                local cf, sz = roomModel:GetBoundingBox()
+                if sz.Magnitude > 0 then
+                    return Vector3.new(cf.Position.X, cf.Position.Y - math.min(sz.Y / 2, 20) + 3.5, cf.Position.Z)
+                end
+            end
+        end
+    end
+    return nil
+end
+
+local function isHallowFoe(npc)
+    if not npc or not npc:IsA("Model") or not npc.Parent then return false end
+    local Players = game:GetService("Players")
+    if Players:GetPlayerFromCharacter(npc) then return false end
+    local hum = npc:FindFirstChildOfClass("Humanoid")
+    if not hum or hum.Health <= 0 then return false end
+
+    local prompt = npc:FindFirstChildWhichIsA("ProximityPrompt", true)
+    if prompt and prompt.Enabled then
+        local act = (prompt.ActionText or ""):lower()
+        if act:find("talk") or act:find("shop") or act:find("buy") or act:find("cloth") or act:find("outfit") or act:find("chat") then
+            return false
+        end
+    end
+
+    if npc:GetAttribute("unhurt") or npc:GetAttribute("HallowNoBar") then
+        return false
+    end
+
+    local name = npc.Name:lower()
+    for _, ign in ipairs(HALLOW_IGNORE_KEYWORDS) do
+        if name:find(ign, 1, true) then return false end
+    end
+
+    local p = npc.PrimaryPart or npc:FindFirstChild("HumanoidRootPart") or npc:FindFirstChildWhichIsA("BasePart")
+    if not p then return false end
+
+    local ws = game:GetService("Workspace")
+    local raidsFolder = ws:FindFirstChild("Raids")
+    if raidsFolder and npc:IsDescendantOf(raidsFolder) then
+        return true
+    end
+
+    if math.abs(p.Position.X - 40000) > 4000 then
+        return false
+    end
+
+    for _, kw in ipairs(HALLOW_FOE_KEYWORDS) do
+        if name:find(kw, 1, true) then return true end
+    end
+
+    local ply = Players.LocalPlayer
+    local hrp = ply and ply.Character and ply.Character:FindFirstChild("HumanoidRootPart")
+    if hrp and math.abs(hrp.Position.X - 40000) < 4000 then
+        local npcsFolder = ws:FindFirstChild("Murim_NPCs")
+        if npcsFolder and npc.Parent == npcsFolder then
+            if (p.Position - hrp.Position).Magnitude < 300 then
+                return true
+            end
+        end
+    end
+
+    return false
+end
+
 local function buildMaster()
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
@@ -2036,7 +2224,157 @@ externalConnections[#externalConnections + 1] = RunService.Heartbeat:Connect(fun
     end
 end)
 
-local settingsPage = makePage("Settings", 8, "ตั้งค่า")
+do
+    local halloweenPage = makePage("Halloween", 8, "🎃 ฮาโลวีน")
+    newHeading(halloweenPage, "🎃 The Hungry Ghost Gate • Auto Raid (ห้อง 1 - 5)")
+    local hallowBody = Instance.new("ScrollingFrame")
+    hallowBody.Name = "HalloweenContent"
+    hallowBody.Position = UDim2.new(0, 0, 0, 44)
+    hallowBody.Size = UDim2.new(1, 0, 1, -56)
+    hallowBody.BackgroundTransparency = 1
+    hallowBody.BorderSizePixel = 0
+    hallowBody.ScrollBarThickness = 4
+    hallowBody.CanvasSize = UDim2.new(0, 0, 0, 420)
+    hallowBody.Parent = halloweenPage
+
+    toggleHallowRaidBtn = Instance.new("TextButton")
+    toggleHallowRaidBtn.Name = "ToggleHallowRaidBtn"
+    toggleHallowRaidBtn.Font = Enum.Font.SourceSansBold
+    toggleHallowRaidBtn.TextSize = 13
+    toggleHallowRaidBtn.TextColor3 = Color3.new(1, 1, 1)
+    toggleHallowRaidBtn.Text = "🎃 ออโต้ผ่านด่าน Hungry Ghost Gate (Auto: OFF)"
+    toggleHallowRaidBtn.BackgroundColor3 = Color3.fromRGB(150, 45, 60)
+    Instance.new("UICorner", toggleHallowRaidBtn).CornerRadius = UDim.new(0, 6)
+    placeButton(toggleHallowRaidBtn, hallowBody, 0, 12, 12, 1, -24)
+
+    local diffHeader = Instance.new("TextLabel")
+    diffHeader.Text = "🎯 เลือกระดับความยาก (Difficulty):"
+    diffHeader.Font = Enum.Font.SourceSansBold
+    diffHeader.TextSize = 13
+    diffHeader.TextColor3 = Color3.fromRGB(240, 240, 240)
+    diffHeader.BackgroundTransparency = 1
+    diffHeader.TextXAlignment = Enum.TextXAlignment.Left
+    diffHeader.Parent = hallowBody
+    diffHeader.Position = UDim2.new(0, 12, 0, 54)
+    diffHeader.Size = UDim2.new(1, -24, 0, 20)
+
+    local diffNormalBtn = Instance.new("TextButton")
+    local diffHardBtn = Instance.new("TextButton")
+    local diffHardcoreBtn = Instance.new("TextButton")
+
+    local function updateDiffButtons()
+        diffNormalBtn.BackgroundColor3 = (hallowDifficulty == "Normal") and Color3.fromRGB(60, 100, 200) or Color3.fromRGB(45, 45, 60)
+        diffHardBtn.BackgroundColor3 = (hallowDifficulty == "Hard") and Color3.fromRGB(60, 100, 200) or Color3.fromRGB(45, 45, 60)
+        diffHardcoreBtn.BackgroundColor3 = (hallowDifficulty == "Hardcore") and Color3.fromRGB(60, 100, 200) or Color3.fromRGB(45, 45, 60)
+    end
+
+    diffNormalBtn.Text = "Normal"
+    diffNormalBtn.Font = Enum.Font.SourceSansBold
+    diffNormalBtn.TextSize = 12
+    diffNormalBtn.TextColor3 = Color3.new(1, 1, 1)
+    Instance.new("UICorner", diffNormalBtn).CornerRadius = UDim.new(0, 6)
+    placeButton(diffNormalBtn, hallowBody, 0, 12, 78, 0.31, -8)
+
+    diffHardBtn.Text = "Hard"
+    diffHardBtn.Font = Enum.Font.SourceSansBold
+    diffHardBtn.TextSize = 12
+    diffHardBtn.TextColor3 = Color3.new(1, 1, 1)
+    Instance.new("UICorner", diffHardBtn).CornerRadius = UDim.new(0, 6)
+    placeButton(diffHardBtn, hallowBody, 0.33, 4, 78, 0.31, -8)
+
+    diffHardcoreBtn.Text = "Hardcore"
+    diffHardcoreBtn.Font = Enum.Font.SourceSansBold
+    diffHardcoreBtn.TextSize = 12
+    diffHardcoreBtn.TextColor3 = Color3.new(1, 1, 1)
+    Instance.new("UICorner", diffHardcoreBtn).CornerRadius = UDim.new(0, 6)
+    placeButton(diffHardcoreBtn, hallowBody, 0.66, -4, 78, 0.34, -8)
+
+    diffNormalBtn.MouseButton1Click:Connect(function() hallowDifficulty = "Normal"; updateDiffButtons() end)
+    diffHardBtn.MouseButton1Click:Connect(function() hallowDifficulty = "Hard"; updateDiffButtons() end)
+    diffHardcoreBtn.MouseButton1Click:Connect(function() hallowDifficulty = "Hardcore"; updateDiffButtons() end)
+    updateDiffButtons()
+
+    local toggleSeenBtn = Instance.new("TextButton")
+    toggleSeenBtn.Font = Enum.Font.SourceSansBold
+    toggleSeenBtn.TextSize = 12
+    toggleSeenBtn.TextColor3 = Color3.new(1, 1, 1)
+    toggleSeenBtn.Text = "👁️ สยบผีอัตโนมัติ (Auto Pacify / Seen: ON)"
+    toggleSeenBtn.BackgroundColor3 = Color3.fromRGB(40, 80, 140)
+    Instance.new("UICorner", toggleSeenBtn).CornerRadius = UDim.new(0, 6)
+    placeButton(toggleSeenBtn, hallowBody, 0, 12, 118, 1, -24)
+
+    toggleSeenBtn.MouseButton1Click:Connect(function()
+        isHallowPacifySeen = not isHallowPacifySeen
+        toggleSeenBtn.Text = isHallowPacifySeen and "👁️ สยบผีอัตโนมัติ (Auto Pacify / Seen: ON)" or "👁️ สยบผีอัตโนมัติ (Auto Pacify / Seen: OFF)"
+        toggleSeenBtn.BackgroundColor3 = isHallowPacifySeen and Color3.fromRGB(40, 80, 140) or Color3.fromRGB(90, 60, 110)
+    end)
+
+    local tpLedgerBtn = Instance.new("TextButton")
+    tpLedgerBtn.Font = Enum.Font.SourceSansBold
+    tpLedgerBtn.TextSize = 12
+    tpLedgerBtn.TextColor3 = Color3.new(1, 1, 1)
+    tpLedgerBtn.Text = "⚡ วาร์ปไปแท่นสมุดลงชื่อ (Guest Ledger)"
+    tpLedgerBtn.BackgroundColor3 = Color3.fromRGB(110, 50, 140)
+    Instance.new("UICorner", tpLedgerBtn).CornerRadius = UDim.new(0, 6)
+    placeButton(tpLedgerBtn, hallowBody, 0, 12, 156, 1, -24)
+
+    tpLedgerBtn.MouseButton1Click:Connect(function()
+        local char = player.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        if hrp then
+            local prompt, part = findGuestLedger()
+            if part then
+                hrp.CFrame = part.CFrame * CFrame.new(0, 2, -4) * CFrame.Angles(0, math.rad(180), 0)
+            else
+                hrp.CFrame = HALLOW_GATE_CFRAME
+            end
+        end
+    end)
+
+    hallowStatusLabel = Instance.new("TextLabel")
+    hallowStatusLabel.Font = Enum.Font.SourceSansBold
+    hallowStatusLabel.TextSize = 12
+    hallowStatusLabel.TextColor3 = Color3.fromRGB(255, 220, 120)
+    hallowStatusLabel.BackgroundColor3 = Color3.fromRGB(20, 25, 35)
+    hallowStatusLabel.BorderSizePixel = 0
+    hallowStatusLabel.TextWrapped = true
+    hallowStatusLabel.Text = "💤 ระบบออโต้ด่านฮาโลวีนปิดอยู่"
+    Instance.new("UICorner", hallowStatusLabel).CornerRadius = UDim.new(0, 6)
+    placeButton(hallowStatusLabel, hallowBody, 0, 12, 196, 1, -24)
+    hallowStatusLabel.Size = UDim2.new(1, -24, 0, 40)
+
+    local infoLabel = Instance.new("TextLabel")
+    infoLabel.Font = Enum.Font.SourceSans
+    infoLabel.TextSize = 11
+    infoLabel.TextColor3 = Color3.fromRGB(180, 180, 180)
+    infoLabel.BackgroundTransparency = 1
+    infoLabel.TextXAlignment = Enum.TextXAlignment.Left
+    infoLabel.TextYAlignment = Enum.TextYAlignment.Top
+    infoLabel.TextWrapped = true
+    infoLabel.Text = "📌 ข้อมูลการทำงาน (ห้อง 1 - 5):\n• ห้อง 1: เดินไปหน้าประตูรอประตูเปิด -> ไม่ตีมอน วาร์ปเข้าห้อง 2 ทันที\n• ห้อง 2: เปิดโลงศพเรื่อยๆ จนเจอกุญแจ (Key) เพื่อเปิดประตูห้อง 3\n• ห้อง 3: กำจัด Paper Effigies จนประตูเปิด -> ผ่านประตูไปตี Boss Paper Tailor\n• ห้อง 4: วาร์ปจุดไฟ/ตะเกียงให้ครบทุกจุด (หลบตัวอมตะ) -> ประตูห้อง 5 เปิด\n• ห้อง 5: เข้าสู่โรงน้ำชา (The Last Teahouse)"
+    infoLabel.Position = UDim2.new(0, 12, 0, 246)
+    infoLabel.Size = UDim2.new(1, -24, 0, 120)
+    infoLabel.Parent = hallowBody
+
+    toggleHallowRaidBtn.MouseButton1Click:Connect(function()
+        isAutoHallowRaid = not isAutoHallowRaid
+        if isAutoHallowRaid then
+            currentRaidRoomIndex = 1
+            roomEnterTime = 0
+            room3Phase = 1
+            toggleHallowRaidBtn.Text = "🎃 ออโต้ผ่านด่าน Hungry Ghost Gate (Auto: ON)"
+            toggleHallowRaidBtn.BackgroundColor3 = Color3.fromRGB(35, 140, 75)
+            hallowStatusLabel.Text = "🚀 เริ่มต้นระบบ Auto Hungry Ghost Gate (ห้อง 1-5)..."
+        else
+            currentRaidRoomIndex = 1
+            toggleHallowRaidBtn.Text = "🎃 ออโต้ผ่านด่าน Hungry Ghost Gate (Auto: OFF)"
+            toggleHallowRaidBtn.BackgroundColor3 = Color3.fromRGB(150, 45, 60)
+            hallowStatusLabel.Text = "💤 ปิดระบบ Auto Hungry Ghost Gate แล้ว"
+        end
+    end)
+end
+
+local settingsPage = makePage("Settings", 9, "ตั้งค่า")
 newHeading(settingsPage, "ตั้งค่าการฟาร์ม")
 local settingsBody = Instance.new("ScrollingFrame")
 settingsBody.Name = "SettingsContent"
@@ -2579,6 +2917,7 @@ local function autoSaveNPCPosition(npc)
 end
 
 local function stopAll()
+    if isAutoHallowRaid then isAutoHallowRaid = false currentRaidRoomIndex = 1 if toggleHallowRaidBtn and toggleHallowRaidBtn.Parent then toggleHallowRaidBtn.Text = "🎃 ออโต้ผ่านด่าน Hungry Ghost Gate (Auto: OFF)" toggleHallowRaidBtn.BackgroundColor3 = Color3.fromRGB(150, 45, 60) end end
     activeBossTarget = nil
     activeBossProbeCount = 0
     lastBossCFrame = nil
@@ -3106,6 +3445,509 @@ artifactTask = task.spawn(function()
             end
         end
         task.wait(0.5)
+    end
+end)
+
+--------------------------------------------------------------------------------
+-- 🎃 ระบบ Auto The Hungry Ghost Gate Raid (ห้อง 1 - 5)
+--------------------------------------------------------------------------------
+local hallowRaidTask = task.spawn(function()
+    while not destroyed do
+        if isAutoHallowRaid and not (hubUI.isBusy and hubUI.isBusy()) then
+            local char = player.Character
+            local hrp = char and char:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                local isInside = checkIsInsideRaid(player)
+
+                if not isInside then
+                    currentRaidRoomIndex = 1
+                    roomEnterTime = 0
+                    room3Phase = 1
+                    local dialog = player.PlayerGui:FindFirstChild("MurimDialog")
+                    if dialog and dialog:FindFirstChild("Panel") then
+                        local sf = dialog.Panel:FindFirstChild("ScrollingFrame")
+                        local diffChoice = sf and sf:FindFirstChild(hallowDifficulty)
+                        if not diffChoice and sf then
+                            for _, child in ipairs(sf:GetChildren()) do
+                                if child.Name:lower() == hallowDifficulty:lower() then
+                                    diffChoice = child
+                                    break
+                                end
+                                local lbl = child:FindFirstChild("Label") or child:FindFirstChildWhichIsA("TextLabel", true)
+                                if lbl and lbl.Text:lower():find(hallowDifficulty:lower(), 1, true) then
+                                    diffChoice = child
+                                    break
+                                end
+                            end
+                        end
+                        if diffChoice then
+                            local targetBtn = (diffChoice:IsA("GuiButton") and diffChoice) or diffChoice:FindFirstChildWhichIsA("GuiButton", true) or diffChoice
+                            if hallowStatusLabel then hallowStatusLabel.Text = "🚪 กำลังกดเลือก: " .. hallowDifficulty .. "..." end
+                            if typeof(firesignal) == "function" and targetBtn:IsA("GuiButton") then
+                                pcall(function() firesignal(targetBtn.MouseButton1Click) end)
+                                pcall(function() firesignal(targetBtn.Activated) end)
+                            end
+                            pcall(function()
+                                if VirtualInputManager and targetBtn:IsA("GuiObject") and targetBtn.AbsoluteSize.X > 0 then
+                                    local cx = targetBtn.AbsolutePosition.X + targetBtn.AbsoluteSize.X / 2
+                                    local cy = targetBtn.AbsolutePosition.Y + targetBtn.AbsoluteSize.Y / 2
+                                    VirtualInputManager:SendMouseButtonEvent(cx, cy, 0, true, game, 1)
+                                    task.wait(0.05)
+                                    VirtualInputManager:SendMouseButtonEvent(cx, cy, 0, false, game, 1)
+                                end
+                            end)
+                            task.wait(1.5)
+                        end
+                    else
+                        local ledgerPrompt, ledgerPart = findGuestLedger()
+                        if ledgerPart then
+                            local dist = (hrp.Position - ledgerPart.Position).Magnitude
+                            if dist > 8 then
+                                if hallowStatusLabel then hallowStatusLabel.Text = "⚡ กำลังวาร์ปไปที่แท่นสมุด Guest Ledger..." end
+                                hrp.CFrame = ledgerPart.CFrame * CFrame.new(0, 2, -4) * CFrame.Angles(0, math.rad(180), 0)
+                                task.wait(0.5)
+                            else
+                                if hallowStatusLabel then hallowStatusLabel.Text = "📜 กำลังกด Sign the guest ledger..." end
+                                if ledgerPrompt then
+                                    if typeof(fireproximityprompt) == "function" then
+                                        fireproximityprompt(ledgerPrompt)
+                                    else
+                                        pcall(function()
+                                            ledgerPrompt:InputHoldBegin()
+                                            task.wait(ledgerPrompt.HoldDuration or 0.1)
+                                            ledgerPrompt:InputHoldEnd()
+                                        end)
+                                    end
+                                else
+                                    pcall(function()
+                                        if VirtualInputManager then
+                                            VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.E, false, game)
+                                            task.wait(0.1)
+                                            VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.E, false, game)
+                                        end
+                                    end)
+                                end
+                                task.wait(0.8)
+                            end
+                        else
+                            local gateDist = (hrp.Position - HALLOW_GATE_CFRAME.Position).Magnitude
+                            if gateDist > 35 then
+                                if hallowStatusLabel then hallowStatusLabel.Text = "⚡ กำลังวาร์ปไปลานพิธี (Sunken Waystation)..." end
+                                hrp.CFrame = HALLOW_GATE_CFRAME
+                                task.wait(0.6)
+                            else
+                                if hallowStatusLabel then hallowStatusLabel.Text = "🔍 กำลังค้นหาแท่นสมุด Guest Ledger..." end
+                                task.wait(0.5)
+                            end
+                        end
+                    end
+                else
+                    -- INSIDE RAID!
+                    local activeRaidModel = getActiveRaidModel()
+
+                    if roomEnterTime == 0 then
+                        roomEnterTime = os.clock()
+                        lastRaidActionTime = os.clock()
+                        currentRaidRoomIndex = 1
+                        room3Phase = 1
+                    end
+
+                    -- Auto Pacify / Seen
+                    if isHallowPacifySeen and os.clock() - lastSeenPacifyTime >= 0.5 then
+                        lastSeenPacifyTime = os.clock()
+                        pcall(function()
+                            local seenRemote = ReplicatedStorage:FindFirstChild("HallowGateSeen")
+                            if seenRemote then
+                                local CollectionService = game:GetService("CollectionService")
+                                local ids = {}
+                                for _, obj in ipairs(CollectionService:GetTagged("HallowWatched")) do
+                                    local hId = obj:GetAttribute("HallowId")
+                                    if hId then table.insert(ids, hId) end
+                                    if #ids >= 32 then break end
+                                end
+                                if #ids > 0 then
+                                    seenRemote:FireServer("seen", ids)
+                                end
+                            end
+                        end)
+                    end
+
+                    -- Check for drops nearby
+                    local dropsFolder = Workspace:FindFirstChild("Murim_Drops")
+                    local raidDrop = nil
+                    if dropsFolder then
+                        for _, drop in ipairs(dropsFolder:GetChildren()) do
+                            if drop and drop.Parent then
+                                local dPart = drop:IsA("BasePart") and drop or (drop:IsA("Model") and (drop.PrimaryPart or drop:FindFirstChildWhichIsA("BasePart", true)))
+                                if dPart and (dPart.Position - hrp.Position).Magnitude <= 80 then
+                                    raidDrop = drop
+                                    break
+                                end
+                            end
+                        end
+                    end
+                    if raidDrop then
+                        if hallowStatusLabel then hallowStatusLabel.Text = "🎁 กำลังเก็บของรางวัล: " .. tostring(raidDrop.Name) end
+                        interactWithDrop(raidDrop)
+                        task.wait(0.1)
+                    else
+                        local timeInRoom = os.clock() - roomEnterTime
+
+                        -- ========================================================
+                        -- ROOM 1: เดินไปหน้าประตู รอประตูเปิด -> ไม่ตีมอน เข้าห้อง 2 เลย
+                        -- ========================================================
+                        if currentRaidRoomIndex == 1 then
+                            local room1Model = activeRaidModel and activeRaidModel:FindFirstChild("A01_Causeway")
+                            local markers = room1Model and room1Model:FindFirstChild("Markers")
+                            local doorSpot = markers and markers:FindFirstChild("HallowShrine")
+                            local room2Entry = activeRaidModel and activeRaidModel:FindFirstChild("A02_CoffinLodge") and activeRaidModel.A02_CoffinLodge:FindFirstChild("Markers") and activeRaidModel.A02_CoffinLodge.Markers:FindFirstChild("HallowEntry")
+                            local targetDoorPos = (doorSpot and doorSpot:IsA("BasePart") and doorSpot.Position)
+                                or (room2Entry and room2Entry:IsA("BasePart") and (room2Entry.Position - Vector3.new(0, 0, 20)))
+                                or (markers and markers:FindFirstChild("HallowEntry") and (markers.HallowEntry.Position + Vector3.new(0, 0, 120)))
+
+                            if targetDoorPos then
+                                if (hrp.Position - targetDoorPos).Magnitude > 8 then
+                                    hrp.CFrame = CFrame.new(targetDoorPos + Vector3.new(0, 3, 0))
+                                end
+                            end
+
+                            -- เช็คว่ามอนสเตอร์โผล่มาแล้วหรือเวลารอหน้าประตูครบ (~7.5 วินาที)
+                            local hasMobsSpawned = false
+                            if room1Model then
+                                for _, m in ipairs(room1Model:GetDescendants()) do
+                                    if m:IsA("Model") and isHallowFoe(m) and isAlive(m) then
+                                        hasMobsSpawned = true
+                                        break
+                                    end
+                                end
+                            end
+
+                            if hasMobsSpawned or timeInRoom >= 7.5 then
+                                if hallowStatusLabel then hallowStatusLabel.Text = "🚪 [1/5 滅燈堤] ประตูเปิดแล้ว! ไม่ต้องตีมอน มุ่งหน้าไปห้อง 2..." end
+                                currentRaidRoomIndex = 2
+                                roomEnterTime = os.clock()
+                                lastRaidActionTime = os.clock()
+                                local nextPos = getRoomTargetPosition(2, activeRaidModel)
+                                if nextPos then
+                                    hrp.CFrame = CFrame.new(nextPos + Vector3.new(0, 3, 0))
+                                end
+                                task.wait(1.0)
+                            else
+                                if hallowStatusLabel then
+                                    hallowStatusLabel.Text = string.format("⏳ [1/5 滅燈堤] ยืนรอหน้าประตูให้เปิด... (%.1fs/7.5s)", timeInRoom)
+                                end
+                            end
+
+                        -- ========================================================
+                        -- ROOM 2: เปิดโลงศพเรื่อยๆ เพื่อหากุญแจ (Key) -> ประตูห้อง 3 เปิด
+                        -- ========================================================
+                        elseif currentRaidRoomIndex == 2 then
+                            local room2Model = activeRaidModel and activeRaidModel:FindFirstChild("A02_CoffinLodge")
+                            local room3Entry = activeRaidModel and activeRaidModel:FindFirstChild("A03_EffigyShop") and activeRaidModel.A03_EffigyShop:FindFirstChild("Markers") and activeRaidModel.A03_EffigyShop.Markers:FindFirstChild("HallowEntry")
+                            
+                            local isRoom3Open = false
+                            if room3Entry and room3Entry:IsA("BasePart") then
+                                local d = (hrp.Position - room3Entry.Position).Magnitude
+                                if d < 40 then
+                                    isRoom3Open = true
+                                end
+                            end
+                            if timeInRoom >= 25.0 then
+                                isRoom3Open = true
+                            end
+
+                            if isRoom3Open then
+                                if hallowStatusLabel then hallowStatusLabel.Text = "🔑 [2/5 義莊] ได้กุญแจแล้ว / ประตูเปิด! มุ่งหน้าไปห้อง 3..." end
+                                currentRaidRoomIndex = 3
+                                roomEnterTime = os.clock()
+                                lastRaidActionTime = os.clock()
+                                room3Phase = 1
+                                local nextPos = getRoomTargetPosition(3, activeRaidModel)
+                                if nextPos then
+                                    hrp.CFrame = CFrame.new(nextPos + Vector3.new(0, 3, 0))
+                                end
+                                task.wait(1.0)
+                            else
+                                local targetPrompt = nil
+                                local targetPart = nil
+                                if room2Model and os.clock() - lastRaidActionTime >= 0.7 then
+                                    for _, prompt in ipairs(room2Model:GetDescendants()) do
+                                        if prompt:IsA("ProximityPrompt") and prompt.Enabled then
+                                            local pName = (prompt.ActionText or ""):lower() .. (prompt.ObjectText or ""):lower() .. (prompt.Parent and prompt.Parent.Name or ""):lower()
+                                            if not pName:find("talk") and not pName:find("shop") then
+                                                local p = prompt.Parent:IsA("BasePart") and prompt.Parent or (prompt.Parent and prompt.Parent:FindFirstChildWhichIsA("BasePart", true))
+                                                if p then
+                                                    targetPrompt = prompt
+                                                    targetPart = p
+                                                    break
+                                                end
+                                            end
+                                        end
+                                    end
+
+                                    if targetPrompt and targetPart then
+                                        lastRaidActionTime = os.clock()
+                                        if hallowStatusLabel then hallowStatusLabel.Text = "⚰️ [2/5 義莊] กำลังเปิดโลงศพหากุญแจ (Key)..." end
+                                        hrp.CFrame = CFrame.new(targetPart.Position + Vector3.new(0, 3, 0))
+                                        if typeof(fireproximityprompt) == "function" then
+                                            fireproximityprompt(targetPrompt)
+                                        else
+                                            pcall(function()
+                                                targetPrompt:InputHoldBegin()
+                                                task.wait(targetPrompt.HoldDuration or 0.1)
+                                                targetPrompt:InputHoldEnd()
+                                            end)
+                                        end
+                                    else
+                                        if hallowStatusLabel then
+                                            hallowStatusLabel.Text = string.format("🔍 [2/5 義莊] ตรวจสอบโลงศพหากุญแจ... (%.0fs)", timeInRoom)
+                                        end
+                                    end
+                                end
+                            end
+
+                        -- ========================================================
+                        -- ROOM 3: ตี Paper Effigies จนประตูเปิด -> ผ่านประตูไปตี Boss Paper Tailor
+                        -- ========================================================
+                        elseif currentRaidRoomIndex == 3 then
+                            local room3Model = activeRaidModel and activeRaidModel:FindFirstChild("A03_EffigyShop")
+                            local tailorSpot = room3Model and room3Model:FindFirstChild("Markers") and room3Model.Markers:FindFirstChild("HallowTailorSpot")
+                            local hallowDoor = room3Model and room3Model:FindFirstChild("Scripted") and room3Model.Scripted:FindFirstChild("HallowDoor")
+
+                            -- เฟส 1: ตี Paper Effigies จนกว่าประตูจะเปิด
+                            if room3Phase == 1 then
+                                local doorOpened = false
+                                if hallowDoor and (not hallowDoor.Parent or (hallowDoor:IsA("BasePart") and not hallowDoor.CanCollide)) then
+                                    doorOpened = true
+                                end
+                                if timeInRoom >= 18.0 then
+                                    doorOpened = true
+                                end
+
+                                if doorOpened then
+                                    room3Phase = 2
+                                    lastRaidActionTime = os.clock()
+                                    if hallowStatusLabel then hallowStatusLabel.Text = "✂️ [3/5 紙紮鋪] ประตูเปิดแล้ว! มุ่งหน้าไปจุดบอส Paper Tailor..." end
+                                    if tailorSpot and tailorSpot:IsA("BasePart") then
+                                        hrp.CFrame = CFrame.new(tailorSpot.Position + Vector3.new(0, 3, 0))
+                                    end
+                                    task.wait(1.0)
+                                else
+                                    local bestEffigy = nil
+                                    local bestDist = math.huge
+                                    local hrpPos = hrp.Position
+                                    local npcsFolder = Workspace:FindFirstChild("Murim_NPCs")
+
+                                    local function checkFoeEffigy(npc)
+                                        if isHallowFoe(npc) and isAlive(npc) then
+                                            local nLow = npc.Name:lower()
+                                            if nLow:find("effigy") or nLow:find("paper") then
+                                                local part = getNPCRootPart(npc)
+                                                if part then
+                                                    local d = (part.Position - hrpPos).Magnitude
+                                                    if d < bestDist then
+                                                        bestDist = d
+                                                        bestEffigy = npc
+                                                    end
+                                                end
+                                            end
+                                        end
+                                    end
+
+                                    if npcsFolder then
+                                        for _, npc in ipairs(npcsFolder:GetChildren()) do checkFoeEffigy(npc) end
+                                    end
+                                    if not bestEffigy and room3Model then
+                                        for _, desc in ipairs(room3Model:GetDescendants()) do
+                                            if desc:IsA("Model") then checkFoeEffigy(desc) end
+                                        end
+                                    end
+
+                                    if bestEffigy then
+                                        local targetPart = getNPCRootPart(bestEffigy)
+                                        if targetPart then
+                                            currentTarget = bestEffigy
+                                            applyHitboxToNPC(bestEffigy)
+                                            revealInvisibleNPC(bestEffigy)
+                                            hrp.CFrame = targetPart.CFrame * CFrame.new(0, 0, 3)
+                                            combatRemote = combatRemote or findCombatRemote()
+                                            if combatRemote then
+                                                pcall(function() combatRemote:FireServer("Attack") end)
+                                            end
+                                            if isAutoArtifact and os.clock() - lastArtifactUsed >= artifactCooldown then
+                                                lastArtifactUsed = os.clock()
+                                                useArtifact(targetPart.Position)
+                                            end
+                                            if hallowStatusLabel then
+                                                hallowStatusLabel.Text = "✂️ [3/5 เฟส 1] กำลังกำจัด Paper Effigy เพื่อเปิดประตู..."
+                                            end
+                                        end
+                                    else
+                                        if hallowStatusLabel then
+                                            hallowStatusLabel.Text = string.format("⏳ [3/5 เฟส 1] ค้นหา Paper Effigies... (%.0fs)", timeInRoom)
+                                        end
+                                    end
+                                end
+
+                            -- เฟส 2: กำจัด Boss Paper Tailor
+                            else
+                                local bossTailor = nil
+                                local bestDist = math.huge
+                                local hrpPos = hrp.Position
+                                local npcsFolder = Workspace:FindFirstChild("Murim_NPCs")
+
+                                local function checkFoeTailor(npc)
+                                    if isHallowFoe(npc) and isAlive(npc) then
+                                        local nLow = npc.Name:lower()
+                                        if nLow:find("tailor") and not nLow:find("gu heng") and not nLow:find("an rou") then
+                                            local part = getNPCRootPart(npc)
+                                            if part then
+                                                local d = (part.Position - hrpPos).Magnitude
+                                                if d < bestDist then
+                                                    bestDist = d
+                                                    bossTailor = npc
+                                                end
+                                            end
+                                        end
+                                    end
+                                end
+
+                                if npcsFolder then
+                                    for _, npc in ipairs(npcsFolder:GetChildren()) do checkFoeTailor(npc) end
+                                end
+                                if not bossTailor and room3Model then
+                                    for _, desc in ipairs(room3Model:GetDescendants()) do
+                                        if desc:IsA("Model") then checkFoeTailor(desc) end
+                                    end
+                                end
+
+                                if bossTailor then
+                                    lastRaidActionTime = os.clock()
+                                    local targetPart = getNPCRootPart(bossTailor)
+                                    if targetPart then
+                                        currentTarget = bossTailor
+                                        applyHitboxToNPC(bossTailor)
+                                        revealInvisibleNPC(bossTailor)
+                                        hrp.CFrame = targetPart.CFrame * CFrame.new(0, 0, 3)
+                                        combatRemote = combatRemote or findCombatRemote()
+                                        if combatRemote then
+                                            pcall(function() combatRemote:FireServer("Attack") end)
+                                        end
+                                        if isAutoArtifact and os.clock() - lastArtifactUsed >= artifactCooldown then
+                                            lastArtifactUsed = os.clock()
+                                            useArtifact(targetPart.Position)
+                                        end
+                                        if hallowStatusLabel then
+                                            hallowStatusLabel.Text = "👑 [3/5 เฟส 2] กำลังกำจัดบอส: Paper Tailor!"
+                                        end
+                                    end
+                                else
+                                    if os.clock() - lastRaidActionTime >= 3.0 then
+                                        if hallowStatusLabel then hallowStatusLabel.Text = "🚪 [3/5 紙紮鋪] บอส Paper Tailor ถูกกำจัดแล้ว! มุ่งหน้าไปห้อง 4..." end
+                                        currentRaidRoomIndex = 4
+                                        roomEnterTime = os.clock()
+                                        lastRaidActionTime = os.clock()
+                                        local nextPos = getRoomTargetPosition(4, activeRaidModel)
+                                        if nextPos then
+                                            hrp.CFrame = CFrame.new(nextPos + Vector3.new(0, 3, 0))
+                                        end
+                                        task.wait(1.0)
+                                    else
+                                        if hallowStatusLabel then hallowStatusLabel.Text = "⏳ [3/5 เฟส 2] รอยืนยันบอสตาย..." end
+                                    end
+                                end
+                            end
+
+                        -- ========================================================
+                        -- ROOM 4: จุดไฟให้ครบทุกจุด (หลบตัวอมตะ) -> ประตูห้อง 5 เปิด
+                        -- ========================================================
+                        elseif currentRaidRoomIndex == 4 then
+                            local room4Model = activeRaidModel and activeRaidModel:FindFirstChild("A04_WatchmanStreet")
+                            local room5Entry = activeRaidModel and activeRaidModel:FindFirstChild("A05_Teahouse") and activeRaidModel.A05_Teahouse:FindFirstChild("Markers") and activeRaidModel.A05_Teahouse.Markers:FindFirstChild("HallowEntry")
+                            
+                            local isRoom5Open = false
+                            if room5Entry and room5Entry:IsA("BasePart") then
+                                if (hrp.Position - room5Entry.Position).Magnitude < 40 then
+                                    isRoom5Open = true
+                                end
+                            end
+                            if timeInRoom >= 25.0 then
+                                isRoom5Open = true
+                            end
+
+                            if isRoom5Open then
+                                if hallowStatusLabel then hallowStatusLabel.Text = "🏮 [4/5 更夫街] จุดไฟครบแล้ว / ประตูเปิด! มุ่งหน้าไปห้อง 5..." end
+                                currentRaidRoomIndex = 5
+                                roomEnterTime = os.clock()
+                                lastRaidActionTime = os.clock()
+                                local nextPos = getRoomTargetPosition(5, activeRaidModel)
+                                if nextPos then
+                                    hrp.CFrame = CFrame.new(nextPos + Vector3.new(0, 3, 0))
+                                end
+                                task.wait(1.0)
+                            else
+                                local targetFirePrompt = nil
+                                local targetFirePart = nil
+
+                                if room4Model and os.clock() - lastRaidActionTime >= 0.7 then
+                                    for _, prompt in ipairs(room4Model:GetDescendants()) do
+                                        if prompt:IsA("ProximityPrompt") and prompt.Enabled then
+                                            local pName = (prompt.ActionText or ""):lower() .. (prompt.ObjectText or ""):lower() .. (prompt.Parent and prompt.Parent.Name or ""):lower()
+                                            if not pName:find("watchman") and not pName:find("sedan") and not pName:find("talk") and not pName:find("shop") then
+                                                local p = prompt.Parent:IsA("BasePart") and prompt.Parent or (prompt.Parent and prompt.Parent:FindFirstChildWhichIsA("BasePart", true))
+                                                if p then
+                                                    targetFirePrompt = prompt
+                                                    targetFirePart = p
+                                                    break
+                                                end
+                                            end
+                                        end
+                                    end
+
+                                    if targetFirePrompt and targetFirePart then
+                                        lastRaidActionTime = os.clock()
+                                        if hallowStatusLabel then hallowStatusLabel.Text = "🏮 [4/5 更夫街] กำลังจุดไฟ/โคมไฟให้ครบทุกจุด..." end
+                                        hrp.CFrame = CFrame.new(targetFirePart.Position + Vector3.new(0, 3, 0))
+                                        if typeof(fireproximityprompt) == "function" then
+                                            fireproximityprompt(targetFirePrompt)
+                                        else
+                                            pcall(function()
+                                                targetFirePrompt:InputHoldBegin()
+                                                task.wait(targetFirePrompt.HoldDuration or 0.1)
+                                                targetFirePrompt:InputHoldEnd()
+                                            end)
+                                        end
+                                    else
+                                        if hallowStatusLabel then
+                                            hallowStatusLabel.Text = string.format("🔍 [4/5 更夫街] ตรวจหาจุดไฟในถนนคนเคาะเกราะ... (%.0fs)", timeInRoom)
+                                        end
+                                    end
+                                end
+                            end
+
+                        -- ========================================================
+                        -- ROOM 5: โรงน้ำชา (The Last Teahouse) - จุดหมายของวันนี้!
+                        -- ========================================================
+                        elseif currentRaidRoomIndex == 5 then
+                            if hallowStatusLabel then
+                                hallowStatusLabel.Text = "🍵 [5/5 末茶樓] ผ่านถึงห้อง 5 (โรงน้ำชา) เรียบร้อยแล้ว! (ภารกิจวันนี้เสร็จสิ้น)"
+                            end
+                            local room5Pos = getRoomTargetPosition(5, activeRaidModel)
+                            if room5Pos and (hrp.Position - room5Pos).Magnitude > 15 then
+                                hrp.CFrame = CFrame.new(room5Pos + Vector3.new(0, 3, 0))
+                            end
+                            task.wait(2.0)
+                        end
+                    end
+                end
+            end
+            task.wait(0.04)
+        else
+            if hallowStatusLabel and hallowStatusLabel.Text ~= "💤 ระบบออโต้ด่านฮาโลวีนปิดอยู่" and not isAutoHallowRaid then
+                hallowStatusLabel.Text = "💤 ระบบออโต้ด่านฮาโลวีนปิดอยู่"
+            end
+            task.wait(0.5)
+        end
     end
 end)
 
