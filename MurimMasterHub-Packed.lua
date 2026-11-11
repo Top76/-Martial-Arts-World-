@@ -2463,8 +2463,9 @@ local function _buildSettings()
     body.Size = UDim2.new(1, 0, 1, -56)
     body.BackgroundTransparency = 1
     body.BorderSizePixel = 0
-    body.ScrollBarThickness = 4
-    body.CanvasSize = UDim2.new(0, 0, 0, 480)
+    body.ScrollBarThickness = 6
+    body.ScrollingDirection = Enum.ScrollingDirection.Y
+    body.CanvasSize = UDim2.new(0, 0, 0, 560)
     body.Parent = settingsPage
     settingsBody = body
 
@@ -2623,7 +2624,6 @@ local function _buildSettings()
     autoDropBtn.BackgroundColor3 = Color3.fromRGB(140, 60, 40)
 
     placeButton(destroyBtn, body, 0, 12, 468, 1, -24)
-    body.CanvasSize = UDim2.new(0, 0, 0, 540)
 
     local autoDropStatusLabel = Instance.new("TextLabel")
     autoDropStatusLabel.Name = "AutoDropStatus"
