@@ -85,6 +85,8 @@ local roomEnterTime = 0
 local lastRaidActionTime = 0
 local room3Phase = 1 -- 1 = kill effigies, 2 = kill Boss Paper Tailor
 local bossTailorFought = false
+local immortalEffigies = {} -- blacklist of effigies confirmed immortal (HP never drops)
+local effigyHpSnapshot = {} -- { [npc] = { hp = number, t = clock } } for tracking
 local openedCoffins = {}
 local toggleHallowRaidBtn = nil
 local hallowStatusLabel = nil
@@ -2384,6 +2386,8 @@ do
             currentRaidRoomIndex = 1
             roomEnterTime = 0
             room3Phase = 1
+            immortalEffigies = {}
+            effigyHpSnapshot = {}
             toggleHallowRaidBtn.Text = "🎃 ออโต้ผ่านด่าน Hungry Ghost Gate (Auto: ON)"
             toggleHallowRaidBtn.BackgroundColor3 = Color3.fromRGB(35, 140, 75)
             hallowStatusLabel.Text = "🚀 เริ่มต้นระบบ Auto Hungry Ghost Gate (ห้อง 1-5)..."
@@ -3485,6 +3489,8 @@ local hallowRaidTask = task.spawn(function()
                     currentRaidRoomIndex = 1
                     roomEnterTime = 0
                     room3Phase = 1
+                    immortalEffigies = {}
+                    effigyHpSnapshot = {}
                     local dialog = player.PlayerGui:FindFirstChild("MurimDialog")
                     if dialog and dialog:FindFirstChild("Panel") then
                         local sf = dialog.Panel:FindFirstChild("ScrollingFrame")
@@ -3572,6 +3578,8 @@ local hallowRaidTask = task.spawn(function()
                         lastRaidActionTime = os.clock()
                         currentRaidRoomIndex = 1
                         room3Phase = 1
+                        immortalEffigies = {}
+                        effigyHpSnapshot = {}
                     end
 
                     -- Auto Pacify / Seen
@@ -3759,6 +3767,8 @@ local hallowRaidTask = task.spawn(function()
                                 roomEnterTime = os.clock()
                                 lastRaidActionTime = os.clock()
                                 room3Phase = 1
+                                immortalEffigies = {}
+                                effigyHpSnapshot = {}
                                 local nextPos = getRoomTargetPosition(3, activeRaidModel)
                                 if nextPos then
                                     hrp.CFrame = CFrame.new(nextPos + Vector3.new(0, 3, 0))
@@ -3886,6 +3896,13 @@ local hallowRaidTask = task.spawn(function()
                                     if npc:IsA("Model") and npc.Parent then
                                         local nLow = npc.Name:lower()
                                         if nLow:find("effigy") or nLow:find("paper") then
+                                            -- ข้ามตัวที่อมตะจาก attribute
+                                            if npc:GetAttribute("Invulnerable") or npc:GetAttribute("Immune")
+                                                or npc:GetAttribute("unhurt") or npc:GetAttribute("HallowNoBar") then
+                                                return
+                                            end
+                                            -- ข้ามตัวที่ blacklist ว่าอมตะ
+                                            if immortalEffigies[npc] then return end
                                             local hum = npc:FindFirstChildOfClass("Humanoid")
                                             if hum and hum.Health > 0 then
                                                 effigyCount = effigyCount + 1
@@ -3925,7 +3942,23 @@ local hallowRaidTask = task.spawn(function()
                                             lastArtifactUsed = os.clock()
                                             useArtifact(targetPart.Position)
                                         end
+                                        -- ตรวจสอบ immortal: ถ้าตีนาน 4 วินาที HP ไม่ลดเลย ให้ blacklist
                                         local hum = bestEffigy:FindFirstChildOfClass("Humanoid")
+                                        if hum then
+                                            local snap = effigyHpSnapshot[bestEffigy]
+                                            if snap then
+                                                if hum.Health >= snap.hp and (os.clock() - snap.t) >= 4.0 then
+                                                    -- HP ไม่ลดเลยใน 4 วินาที = อมตะ
+                                                    immortalEffigies[bestEffigy] = true
+                                                    effigyHpSnapshot[bestEffigy] = nil
+                                                elseif hum.Health < snap.hp then
+                                                    -- HP ลดได้ปกติ รีเซต snapshot
+                                                    effigyHpSnapshot[bestEffigy] = { hp = hum.Health, t = os.clock() }
+                                                end
+                                            else
+                                                effigyHpSnapshot[bestEffigy] = { hp = hum.Health, t = os.clock() }
+                                            end
+                                        end
                                         local hpText = hum and string.format(" (HP: %.0f, เหลือ %d ตัว)", hum.Health, effigyCount) or ""
                                         if hallowStatusLabel then
                                             hallowStatusLabel.Text = "✂️ [3/10 เฟส 1] กำลังกำจัด Paper Effigy" .. hpText .. " เพื่อเปิดประตู..."
