@@ -2599,7 +2599,6 @@ local AUTO_DROP_EQUIP_SLOTS = {
     ["Waist"] = true,
     ["Wrist"] = true,
     ["Weapon"] = true,
-    ["Style"] = true,
     -- slot ชื่ออื่นที่เกมอาจใช้
     ["Helmet"] = true, ["Chest"] = true, ["Legs"] = true,
     ["Gloves"] = true, ["Boots"] = true, ["Offhand"] = true,
