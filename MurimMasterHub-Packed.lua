@@ -2586,8 +2586,6 @@ togglePositionBtn.MouseButton1Click:Connect(function()
     updateDistText()
 end)
 displayPositionMode()
-placeButton(destroyBtn, settingsBody, 0, 12, 420, 1, -24)
-
 -- 🗑️ Auto Drop: ทิ้งของส่วมใส่ที่ต่ำกว่า Epic จาก Inventory
 -- slot ของของที่สวมใส่ได้ตามรูป (Head/Neck/Top/Bottom/Back/Waist/Wrist/Weapon/Style)
 local AUTO_DROP_EQUIP_SLOTS = {
@@ -2613,9 +2611,11 @@ autoDropBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 autoDropBtn.TextSize = 13
 autoDropBtn.TextWrapped = true
 Instance.new("UICorner", autoDropBtn).CornerRadius = UDim.new(0, 6)
-placeButton(autoDropBtn, settingsBody, 0, 12, 468, 1, -24)
+placeButton(autoDropBtn, settingsBody, 0, 12, 420, 1, -24)
 autoDropBtn.Text = "🗑️ Auto Drop ของส่วมใส่ต่ำกว่า Legendary"
 autoDropBtn.BackgroundColor3 = Color3.fromRGB(140, 60, 40)
+
+placeButton(destroyBtn, settingsBody, 0, 12, 468, 1, -24)
 
 settingsBody.CanvasSize = UDim2.new(0, 0, 0, 540)
 
