@@ -2957,20 +2957,6 @@ local function stopAll()
 	if mainTask then task.cancel(mainTask) mainTask = nil end
 	if attackTask then task.cancel(attackTask) attackTask = nil end
 
-    -- คืนค่า CanCollide และ Humanoid state กลับปกติหลังหยุดฟาร์ม
-    local charRestore = player.Character
-    if charRestore then
-        for _, part in ipairs(charRestore:GetDescendants()) do
-            if part:IsA("BasePart") then
-                part.CanCollide = true
-            end
-        end
-        local humRestore = charRestore:FindFirstChildWhichIsA("Humanoid")
-        if humRestore and humRestore.Health > 0 then
-            humRestore:ChangeState(Enum.HumanoidStateType.GettingUp)
-        end
-    end
-
 	startBtn.Text = "เริ่มฟาร์ม"
 	startBtn.BackgroundColor3 = Color3.fromRGB(35, 150, 65)
 end
@@ -3436,39 +3422,6 @@ externalConnections[#externalConnections + 1] = RunService.Heartbeat:Connect(fun
     end
 end)
 
---------------------------------------------------------------------------------
--- 🛸 ระบบ Noclip + Physics Freeze (เฉพาะตอนฟาร์ม / Auto Farm Boss)
--- • ปิด CanCollide ทุก part ของตัวละคร → ทะลุ geometry ระหว่างวาร์ป
--- • Zero velocity ทุก Stepped frame → ไม่กระเด็นออกจากตำแหน่ง
--- • Force Humanoid state ถ้าตกอยู่ → ป้องกันจมพื้น
--- • ไม่ทำงานระหว่าง Halloween Raid → ป้องกันจมพื้นขณะวาร์ปห้อง
--- • หยุดฟาร์ม → คืนค่า CanCollide และ Humanoid state ปกติ (ดู stopAll)
---------------------------------------------------------------------------------
-externalConnections[#externalConnections + 1] = RunService.Stepped:Connect(function()
-    if not (isFarming or isAutoFarmBoss) or isAutoHallowRaid then return end
-    local char = player.Character
-    if not char then return end
-    -- ปิด collision ทุก part → ทะลุกำแพง/พื้น
-    for _, part in ipairs(char:GetDescendants()) do
-        if part:IsA("BasePart") and part.CanCollide then
-            part.CanCollide = false
-        end
-    end
-    -- ล็อก velocity → ไม่กระเด็น/ไม่ถูก physics ดึง
-    local hrp = char:FindFirstChild("HumanoidRootPart")
-    if hrp then
-        hrp.AssemblyLinearVelocity = Vector3.zero
-        hrp.AssemblyAngularVelocity = Vector3.zero
-    end
-    -- ถ้าตกอยู่ให้สลับ state ป้องกันจมพื้น
-    local hum = char:FindFirstChildWhichIsA("Humanoid")
-    if hum and hum.Health > 0 then
-        local st = hum:GetState()
-        if st == Enum.HumanoidStateType.Freefall or st == Enum.HumanoidStateType.FallingDown then
-            hum:ChangeState(Enum.HumanoidStateType.Physics)
-        end
-    end
-end)
 
 --------------------------------------------------------------------------------
 -- 📿 ระบบ Auto Artifact (ทำงานอัตโนมัติเมื่ออยู่ในระยะศัตรู)
