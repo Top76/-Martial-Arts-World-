@@ -2283,8 +2283,8 @@ externalConnections[#externalConnections + 1] = RunService.Heartbeat:Connect(fun
     end
 end)
 
--- Halloween: IIFE เพื่อลด register ใน buildMaster
-;(function()
+-- Halloween: named local function เพื่อลด register ใน buildMaster (Lua 5.1 limit 200)
+local function _buildHalloween()
     local halloweenPage = makePage("Halloween", 8, "🎃 ฮาโลวีน")
     newHeading(halloweenPage, "🎃 The Hungry Ghost Gate • Auto Raid (ครบ 10 ห้อง)")
     local hallowBody = Instance.new("ScrollingFrame")
@@ -2449,11 +2449,12 @@ end)
             hallowStatusLabel.Text = "💤 ปิดระบบ Auto Hungry Ghost Gate แล้ว"
         end
     end)
-end)()
+end
+_buildHalloween()
 
--- SettingsPage: แยกเป็น IIFE เพื่อลด register count ใน buildMaster (Lua 5.1 limit 200)
-local settingsBody;
-;(function()
+-- SettingsPage: named local function เพื่อลด register count ใน buildMaster (Lua 5.1 limit 200)
+local settingsBody
+local function _buildSettings()
     local settingsPage = makePage("Settings", 9, "ตั้งค่า")
     newHeading(settingsPage, "ตั้งค่าการฟาร์ม")
     local body = Instance.new("ScrollingFrame")
@@ -2721,7 +2722,8 @@ local settingsBody;
             end
         end)
     end)
-end)()
+end
+_buildSettings()
 
 -- Keep Start/Stop accessible from every page.
 local footer = Instance.new("Frame")
