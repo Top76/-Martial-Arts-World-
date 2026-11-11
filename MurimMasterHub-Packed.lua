@@ -2450,304 +2450,277 @@ do
     end)
 end
 
-local settingsPage = makePage("Settings", 9, "ตั้งค่า")
-newHeading(settingsPage, "ตั้งค่าการฟาร์ม")
-local settingsBody = Instance.new("ScrollingFrame")
-settingsBody.Name = "SettingsContent"
-settingsBody.Position = UDim2.new(0, 0, 0, 44)
-settingsBody.Size = UDim2.new(1, 0, 1, -56)
-settingsBody.BackgroundTransparency = 1
-settingsBody.BorderSizePixel = 0
-settingsBody.ScrollBarThickness = 4
-settingsBody.CanvasSize = UDim2.new(0, 0, 0, 480)
-settingsBody.Parent = settingsPage
-distLabel.Parent = settingsBody
-distLabel.Position = UDim2.new(0, 12, 0, 0)
-distLabel.Size = UDim2.new(1, -24, 0, 28)
-distLabel.TextXAlignment = Enum.TextXAlignment.Left
-distLabel.TextSize = 14
-placeButton(addDistBtn, settingsBody, 0, 12, 36, 0.5, -16)
-placeButton(subDistBtn, settingsBody, 0.5, 4, 36, 0.5, -16)
-placeButton(toggleHitboxBtn, settingsBody, 0, 12, 84, 1, -24)
-placeButton(toggleLootBtn, settingsBody, 0, 12, 132, 1, -24)
+-- SettingsPage: แยกเป็น IIFE เพื่อลด register count ใน buildMaster (Lua 5.1 limit 200)
+local settingsBody;
+(function()
+    local settingsPage = makePage("Settings", 9, "ตั้งค่า")
+    newHeading(settingsPage, "ตั้งค่าการฟาร์ม")
+    local body = Instance.new("ScrollingFrame")
+    body.Name = "SettingsContent"
+    body.Position = UDim2.new(0, 0, 0, 44)
+    body.Size = UDim2.new(1, 0, 1, -56)
+    body.BackgroundTransparency = 1
+    body.BorderSizePixel = 0
+    body.ScrollBarThickness = 4
+    body.CanvasSize = UDim2.new(0, 0, 0, 480)
+    body.Parent = settingsPage
+    settingsBody = body
 
-local toggleLootFilterBtn = Instance.new("TextButton")
-toggleLootFilterBtn.Name = "LootFilterToggle"
-toggleLootFilterBtn.Font = Enum.Font.SourceSansBold
-toggleLootFilterBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-toggleLootFilterBtn.TextSize = 13
-Instance.new("UICorner", toggleLootFilterBtn).CornerRadius = UDim.new(0, 6)
-placeButton(toggleLootFilterBtn, settingsBody, 0, 12, 180, 1, -24)
-local function displayLootFilter()
-    local opt = LOOT_FILTER_OPTIONS[currentLootFilterIdx]
-    toggleLootFilterBtn.Text = "🎁 กรองไอเทม: " .. (opt and opt.text or "ทั้งหมด (All)")
-    toggleLootFilterBtn.BackgroundColor3 = currentLootFilterIdx > 1 and Color3.fromRGB(40, 140, 80) or Color3.fromRGB(90, 60, 110)
-end
-toggleLootFilterBtn.MouseButton1Click:Connect(function()
-    currentLootFilterIdx = (currentLootFilterIdx % #LOOT_FILTER_OPTIONS) + 1
+    distLabel.Parent = body
+    distLabel.Position = UDim2.new(0, 12, 0, 0)
+    distLabel.Size = UDim2.new(1, -24, 0, 28)
+    distLabel.TextXAlignment = Enum.TextXAlignment.Left
+    distLabel.TextSize = 14
+    placeButton(addDistBtn, body, 0, 12, 36, 0.5, -16)
+    placeButton(subDistBtn, body, 0.5, 4, 36, 0.5, -16)
+    placeButton(toggleHitboxBtn, body, 0, 12, 84, 1, -24)
+    placeButton(toggleLootBtn, body, 0, 12, 132, 1, -24)
+
+    local toggleLootFilterBtn = Instance.new("TextButton")
+    toggleLootFilterBtn.Name = "LootFilterToggle"
+    toggleLootFilterBtn.Font = Enum.Font.SourceSansBold
+    toggleLootFilterBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    toggleLootFilterBtn.TextSize = 13
+    Instance.new("UICorner", toggleLootFilterBtn).CornerRadius = UDim.new(0, 6)
+    placeButton(toggleLootFilterBtn, body, 0, 12, 180, 1, -24)
+    local function displayLootFilter()
+        local opt = LOOT_FILTER_OPTIONS[currentLootFilterIdx]
+        toggleLootFilterBtn.Text = "🎁 กรองไอเทม: " .. (opt and opt.text or "ทั้งหมด (All)")
+        toggleLootFilterBtn.BackgroundColor3 = currentLootFilterIdx > 1 and Color3.fromRGB(40, 140, 80) or Color3.fromRGB(90, 60, 110)
+    end
+    toggleLootFilterBtn.MouseButton1Click:Connect(function()
+        currentLootFilterIdx = (currentLootFilterIdx % #LOOT_FILTER_OPTIONS) + 1
+        displayLootFilter()
+    end)
     displayLootFilter()
-end)
-displayLootFilter()
 
-local toggleParryBtn = Instance.new("TextButton")
-toggleParryBtn.Name = "AutoParryToggle"
-toggleParryBtn.Font = Enum.Font.SourceSansBold
-toggleParryBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-Instance.new("UICorner", toggleParryBtn).CornerRadius = UDim.new(0, 6)
-placeButton(toggleParryBtn, settingsBody, 0, 12, 228, 1, -24)
-local function displayParry()
-    toggleParryBtn.Text = isAutoParry and "🛡️ ป้องกันอัตโนมัติ (Auto Parry: ON)" or "🛡️ ป้องกันอัตโนมัติ (Auto Parry: OFF)"
-    toggleParryBtn.BackgroundColor3 = isAutoParry and Color3.fromRGB(40, 110, 150) or Color3.fromRGB(90, 60, 110)
-end
-toggleParryBtn.MouseButton1Click:Connect(function()
-    isAutoParry = not isAutoParry
-    if not isAutoParry and isParrying then
-        combatRemote = combatRemote or findCombatRemote()
-        if combatRemote then pcall(function() combatRemote:FireServer("ParryUp", nil) end) end
-        isParrying = false
+    local toggleParryBtn = Instance.new("TextButton")
+    toggleParryBtn.Name = "AutoParryToggle"
+    toggleParryBtn.Font = Enum.Font.SourceSansBold
+    toggleParryBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    Instance.new("UICorner", toggleParryBtn).CornerRadius = UDim.new(0, 6)
+    placeButton(toggleParryBtn, body, 0, 12, 228, 1, -24)
+    local function displayParry()
+        toggleParryBtn.Text = isAutoParry and "🛡️ ป้องกันอัตโนมัติ (Auto Parry: ON)" or "🛡️ ป้องกันอัตโนมัติ (Auto Parry: OFF)"
+        toggleParryBtn.BackgroundColor3 = isAutoParry and Color3.fromRGB(40, 110, 150) or Color3.fromRGB(90, 60, 110)
     end
+    toggleParryBtn.MouseButton1Click:Connect(function()
+        isAutoParry = not isAutoParry
+        if not isAutoParry and isParrying then
+            combatRemote = combatRemote or findCombatRemote()
+            if combatRemote then pcall(function() combatRemote:FireServer("ParryUp", nil) end) end
+            isParrying = false
+        end
+        displayParry()
+    end)
     displayParry()
-end)
-displayParry()
 
-local toggleArtifactBtn = Instance.new("TextButton")
-toggleArtifactBtn.Name = "AutoArtifactToggle"
-toggleArtifactBtn.Font = Enum.Font.SourceSansBold
-toggleArtifactBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-Instance.new("UICorner", toggleArtifactBtn).CornerRadius = UDim.new(0, 6)
-placeButton(toggleArtifactBtn, settingsBody, 0, 12, 276, 1, -24)
-local function displayArtifact()
-    toggleArtifactBtn.Text = isAutoArtifact and "📿 ใช้อาวุธวิเศษ (Auto Artifact: ON)" or "📿 ใช้อาวุธวิเศษ (Auto Artifact: OFF)"
-    toggleArtifactBtn.BackgroundColor3 = isAutoArtifact and Color3.fromRGB(40, 110, 150) or Color3.fromRGB(90, 60, 110)
-end
-toggleArtifactBtn.MouseButton1Click:Connect(function()
-    isAutoArtifact = not isAutoArtifact
+    local toggleArtifactBtn = Instance.new("TextButton")
+    toggleArtifactBtn.Name = "AutoArtifactToggle"
+    toggleArtifactBtn.Font = Enum.Font.SourceSansBold
+    toggleArtifactBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    Instance.new("UICorner", toggleArtifactBtn).CornerRadius = UDim.new(0, 6)
+    placeButton(toggleArtifactBtn, body, 0, 12, 276, 1, -24)
+    local function displayArtifact()
+        toggleArtifactBtn.Text = isAutoArtifact and "📿 ใช้อาวุธวิเศษ (Auto Artifact: ON)" or "📿 ใช้อาวุธวิเศษ (Auto Artifact: OFF)"
+        toggleArtifactBtn.BackgroundColor3 = isAutoArtifact and Color3.fromRGB(40, 110, 150) or Color3.fromRGB(90, 60, 110)
+    end
+    toggleArtifactBtn.MouseButton1Click:Connect(function()
+        isAutoArtifact = not isAutoArtifact
+        displayArtifact()
+    end)
     displayArtifact()
-end)
-displayArtifact()
 
--- Anti-idle input approach adapted from Infinite Yield's antiafk command:
--- https://raw.githubusercontent.com/EdgeIY/infiniteyield/master/source
--- Keep other scripts' Idled connections intact; own connection is cleaned up by cleanup().
-local antiAFKEnabled = true
-local antiAFKButton = Instance.new("TextButton")
-antiAFKButton.Name = "AntiAFKToggle"
-antiAFKButton.Font = Enum.Font.SourceSansBold
-antiAFKButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-Instance.new("UICorner", antiAFKButton).CornerRadius = UDim.new(0, 6)
-placeButton(antiAFKButton, settingsBody, 0, 12, 324, 1, -24)
-local function displayAntiAFK()
-    antiAFKButton.Text = antiAFKEnabled and "ป้องกัน AFK (Anti-AFK: ON)" or "ป้องกัน AFK (Anti-AFK: OFF)"
-    antiAFKButton.BackgroundColor3 = antiAFKEnabled and Color3.fromRGB(40, 110, 150) or Color3.fromRGB(90, 60, 110)
-end
-antiAFKButton.MouseButton1Click:Connect(function()
-    antiAFKEnabled = not antiAFKEnabled
-    displayAntiAFK()
-end)
-displayAntiAFK()
-externalConnections[#externalConnections + 1] = player.Idled:Connect(function()
-    if destroyed or not antiAFKEnabled or (hubUI.isBusy and hubUI.isBusy()) then return end
-    -- No polling loop; send a press/release only when Roblox reports idle.
-    local ok, message = pcall(function()
-        for _, pressed in ipairs({true, false}) do
-            VirtualInputManager:SendMouseButtonEvent(0, 0, 0, pressed, game, 0)
-        end
-    end)
-    if not ok then
-        -- Attempt release even if the initial input failed.
-        pcall(function()
-            VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
-        end)
-        antiAFKEnabled = false
+    -- Anti-idle input approach adapted from Infinite Yield's antiafk command:
+    -- https://raw.githubusercontent.com/EdgeIY/infiniteyield/master/source
+    -- Keep other scripts' Idled connections intact; own connection is cleaned up by cleanup().
+    local antiAFKEnabled = true
+    local antiAFKButton = Instance.new("TextButton")
+    antiAFKButton.Name = "AntiAFKToggle"
+    antiAFKButton.Font = Enum.Font.SourceSansBold
+    antiAFKButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+    Instance.new("UICorner", antiAFKButton).CornerRadius = UDim.new(0, 6)
+    placeButton(antiAFKButton, body, 0, 12, 324, 1, -24)
+    local function displayAntiAFK()
+        antiAFKButton.Text = antiAFKEnabled and "ป้องกัน AFK (Anti-AFK: ON)" or "ป้องกัน AFK (Anti-AFK: OFF)"
+        antiAFKButton.BackgroundColor3 = antiAFKEnabled and Color3.fromRGB(40, 110, 150) or Color3.fromRGB(90, 60, 110)
+    end
+    antiAFKButton.MouseButton1Click:Connect(function()
+        antiAFKEnabled = not antiAFKEnabled
         displayAntiAFK()
-        antiAFKButton.Text = "Anti-AFK: ตัวรันไม่อนุญาตให้ส่งอินพุต"
-        warn("[Murim Anti-AFK] " .. tostring(message))
-    end
-end)
-local togglePositionBtn = Instance.new("TextButton")
-togglePositionBtn.Name = "PositionModeToggle"
-togglePositionBtn.Font = Enum.Font.SourceSansBold
-togglePositionBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-togglePositionBtn.TextSize = 13
-Instance.new("UICorner", togglePositionBtn).CornerRadius = UDim.new(0, 6)
-placeButton(togglePositionBtn, settingsBody, 0, 12, 372, 1, -24)
-local function displayPositionMode()
-    if farmPositionMode == "above" then
-        togglePositionBtn.Text = "⬆️ วาปอยู่ด้านบน (นอนคว่ำหันลง)"
-        togglePositionBtn.BackgroundColor3 = Color3.fromRGB(100, 60, 160)
-    else
-        togglePositionBtn.Text = "⬇️ วาปอยู่ด้านล่าง (มุดใต้ตัว)"
-        togglePositionBtn.BackgroundColor3 = Color3.fromRGB(40, 110, 150)
-    end
-end
-togglePositionBtn.MouseButton1Click:Connect(function()
-    farmPositionMode = farmPositionMode == "below" and "above" or "below"
-    displayPositionMode()
-    updateDistText()
-end)
-displayPositionMode()
--- 🗑️ Auto Drop: ทิ้งของส่วมใส่ที่ต่ำกว่า Epic จาก Inventory
--- slot ของของที่สวมใส่ได้ตามรูป (Head/Neck/Top/Bottom/Back/Waist/Wrist/Weapon/Style)
-local AUTO_DROP_EQUIP_SLOTS = {
-    ["Head"] = true, ["Headwear"] = true,
-    ["Neck"] = true,
-    ["Top"] = true,
-    ["Bottom"] = true,
-    ["Back"] = true,
-    ["Waist"] = true,
-    ["Wrist"] = true,
-    ["Weapon"] = true,
-    -- slot ชื่ออื่นที่เกมอาจใช้
-    ["Helmet"] = true, ["Chest"] = true, ["Legs"] = true,
-    ["Gloves"] = true, ["Boots"] = true, ["Offhand"] = true,
-}
-local AUTO_DROP_MIN_RARITY = 5 -- Legendary = 5; ของ Common/Uncommon/Rare/Epic จะถูกทิ้ง
-local autoDrop_running = false
-
-local autoDropBtn = Instance.new("TextButton")
-autoDropBtn.Name = "AutoDropEquip"
-autoDropBtn.Font = Enum.Font.SourceSansBold
-autoDropBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-autoDropBtn.TextSize = 13
-autoDropBtn.TextWrapped = true
-Instance.new("UICorner", autoDropBtn).CornerRadius = UDim.new(0, 6)
-placeButton(autoDropBtn, settingsBody, 0, 12, 420, 1, -24)
-autoDropBtn.Text = "🗑️ Auto Drop ของส่วมใส่ต่ำกว่า Legendary"
-autoDropBtn.BackgroundColor3 = Color3.fromRGB(140, 60, 40)
-
-placeButton(destroyBtn, settingsBody, 0, 12, 468, 1, -24)
-
-settingsBody.CanvasSize = UDim2.new(0, 0, 0, 540)
-
--- Label แสดงผลลัพธ์
-local autoDropStatusLabel = Instance.new("TextLabel")
-autoDropStatusLabel.Name = "AutoDropStatus"
-autoDropStatusLabel.Size = UDim2.new(1, -24, 0, 20)
-autoDropStatusLabel.Position = UDim2.new(0, 12, 0, 510)
-autoDropStatusLabel.BackgroundTransparency = 1
-autoDropStatusLabel.Text = ""
-autoDropStatusLabel.TextColor3 = Color3.fromRGB(220, 180, 100)
-autoDropStatusLabel.Font = Enum.Font.SourceSans
-autoDropStatusLabel.TextSize = 12
-autoDropStatusLabel.TextXAlignment = Enum.TextXAlignment.Left
-autoDropStatusLabel.TextWrapped = true
-autoDropStatusLabel.Parent = settingsBody
-
-local function getItemRarityIndex(itemId)
-    if not murimItems or not murimItems.get then return nil end
-    local ok, info = pcall(murimItems.get, itemId)
-    if not ok or type(info) ~= "table" then return nil end
-    local rarity = info.rarity
-    if murimConfig and murimConfig.rarityIndex then
-        local ok2, idx = pcall(murimConfig.rarityIndex, rarity)
-        if ok2 and tonumber(idx) then return tonumber(idx), info end
-    end
-    return RARITY_MAP[rarity] or 1, info
-end
-
-autoDropBtn.MouseButton1Click:Connect(function()
-    if autoDrop_running then return end
-    -- หา State module
-    local state = murimClientState
-    if not state then
-        -- ลองหาอีกครั้ง
-        pcall(function()
-            local scripts = player:FindFirstChild("PlayerScripts")
-            local client = scripts and scripts:FindFirstChild("MurimClient")
-            if client then
-                state = require(client:WaitForChild("State", 5))
-                murimClientState = state
+    end)
+    displayAntiAFK()
+    externalConnections[#externalConnections + 1] = player.Idled:Connect(function()
+        if destroyed or not antiAFKEnabled or (hubUI.isBusy and hubUI.isBusy()) then return end
+        -- No polling loop; send a press/release only when Roblox reports idle.
+        local ok, message = pcall(function()
+            for _, pressed in ipairs({true, false}) do
+                VirtualInputManager:SendMouseButtonEvent(0, 0, 0, pressed, game, 0)
             end
         end)
-    end
-    if not state then
-        autoDropStatusLabel.Text = "❌ หา MurimClient.State ไม่เจอ"
-        return
-    end
-    -- หา ItemRequest remote
-    local remote = itemRequestRemote or findItemRequestRemote()
-    if not remote then
-        -- ค้นหาด้วยชื่อ
-        pcall(function()
-            local murim = ReplicatedStorage:FindFirstChild("Murim")
-            local remotes = murim and murim:FindFirstChild("Remotes")
-            remote = remotes and (remotes:FindFirstChild("ItemRequest") or remotes:FindFirstChild("Item"))
-        end)
-    end
-    if not remote then
-        autoDropStatusLabel.Text = "❌ หา ItemRequest Remote ไม่เจอ"
-        return
-    end
-    itemRequestRemote = remote
-
-    local inventory = state.Inventory and state.Inventory.inventory or {}
-    if #inventory == 0 then
-        autoDropStatusLabel.Text = "⚠️ Inventory ว่างเปล่า หรือยังโหลดไม่เสร็จ"
-        return
-    end
-
-    autoDrop_running = true
-    autoDropBtn.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
-    autoDropBtn.Text = "🔄 กำลังทิ้ง..."
-
-    local dropped = 0
-    local skipped = 0
-    local failed = 0
-
-    for _, item in ipairs(inventory) do
-        if destroyed then break end
-        if not item or type(item.uid) ~= "string" or not item.id then
-            skipped += 1
-            continue
-        end
-
-        -- รับ rarity และ slot ของ item
-        local rarityIdx, info = getItemRarityIndex(item.id)
-        if not rarityIdx or not info then
-            -- ไม่รู้ rarity → ข้าม (safe)
-            skipped += 1
-            continue
-        end
-
-        -- ตรวจว่าเป็น slot ที่สวมใส่ได้ไหม
-        local slot = info.slot or info.type or info.cat or ""
-        local isEquipSlot = AUTO_DROP_EQUIP_SLOTS[slot]
-        if not isEquipSlot then
-            skipped += 1
-            continue
-        end
-
-        -- ถ้า rarity ต่ำกว่า Epic → ทิ้ง
-        if rarityIdx < AUTO_DROP_MIN_RARITY then
-            autoDropStatusLabel.Text = string.format("🗑️ กำลังทิ้ง: %s [%s]...", item.id, info.rarity or "?")
-            local ok, result = pcall(function()
-                return remote:InvokeServer("Drop", { uid = item.uid })
+        if not ok then
+            -- Attempt release even if the initial input failed.
+            pcall(function()
+                VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
             end)
-            if ok then
-                dropped += 1
-            else
-                failed += 1
-                warn("[AutoDrop] Drop failed for uid=" .. item.uid .. ": " .. tostring(result))
-            end
-            task.wait(0.15) -- หน่วงเล็กน้อยไม่ให้ spam
-        else
-            skipped += 1
-        end
-    end
-
-    autoDrop_running = false
-    autoDropBtn.BackgroundColor3 = Color3.fromRGB(140, 60, 40)
-    autoDropBtn.Text = "🗑️ Auto Drop ของส่วมใส่ต่ำกว่า Legendary"
-    autoDropStatusLabel.Text = string.format(
-        "✅ ทิ้งแล้ว %d ชิ้น | ข้าม %d | ล้มเหลว %d",
-        dropped, skipped, failed
-    )
-    task.delay(8, function()
-        if not destroyed and autoDropStatusLabel.Parent then
-            autoDropStatusLabel.Text = ""
+            antiAFKEnabled = false
+            displayAntiAFK()
+            antiAFKButton.Text = "Anti-AFK: ตัวรันไม่อนุญาตให้ส่งอินพุต"
+            warn("[Murim Anti-AFK] " .. tostring(message))
         end
     end)
-end)
+
+    local togglePositionBtn = Instance.new("TextButton")
+    togglePositionBtn.Name = "PositionModeToggle"
+    togglePositionBtn.Font = Enum.Font.SourceSansBold
+    togglePositionBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    togglePositionBtn.TextSize = 13
+    Instance.new("UICorner", togglePositionBtn).CornerRadius = UDim.new(0, 6)
+    placeButton(togglePositionBtn, body, 0, 12, 372, 1, -24)
+    local function displayPositionMode()
+        if farmPositionMode == "above" then
+            togglePositionBtn.Text = "⬆️ วาปอยู่ด้านบน (นอนคว่ำหันลง)"
+            togglePositionBtn.BackgroundColor3 = Color3.fromRGB(100, 60, 160)
+        else
+            togglePositionBtn.Text = "⬇️ วาปอยู่ด้านล่าง (มุดใต้ตัว)"
+            togglePositionBtn.BackgroundColor3 = Color3.fromRGB(40, 110, 150)
+        end
+    end
+    togglePositionBtn.MouseButton1Click:Connect(function()
+        farmPositionMode = farmPositionMode == "below" and "above" or "below"
+        displayPositionMode()
+        updateDistText()
+    end)
+    displayPositionMode()
+
+    -- 🗑️ Auto Drop: ทิ้งของส่วมใส่ที่ต่ำกว่า Legendary จาก Inventory (ไม่รวม Style)
+    local AUTO_DROP_EQUIP_SLOTS = {
+        ["Head"] = true, ["Headwear"] = true,
+        ["Neck"] = true,
+        ["Top"] = true,
+        ["Bottom"] = true,
+        ["Back"] = true,
+        ["Waist"] = true,
+        ["Wrist"] = true,
+        ["Weapon"] = true,
+        ["Helmet"] = true, ["Chest"] = true, ["Legs"] = true,
+        ["Gloves"] = true, ["Boots"] = true, ["Offhand"] = true,
+    }
+    local AUTO_DROP_MIN_RARITY = 5 -- Legendary=5; ทิ้ง Common/Uncommon/Rare/Epic
+    local autoDrop_running = false
+
+    local autoDropBtn = Instance.new("TextButton")
+    autoDropBtn.Name = "AutoDropEquip"
+    autoDropBtn.Font = Enum.Font.SourceSansBold
+    autoDropBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    autoDropBtn.TextSize = 13
+    autoDropBtn.TextWrapped = true
+    Instance.new("UICorner", autoDropBtn).CornerRadius = UDim.new(0, 6)
+    placeButton(autoDropBtn, body, 0, 12, 420, 1, -24)
+    autoDropBtn.Text = "🗑️ Auto Drop ของส่วมใส่ต่ำกว่า Legendary"
+    autoDropBtn.BackgroundColor3 = Color3.fromRGB(140, 60, 40)
+
+    placeButton(destroyBtn, body, 0, 12, 468, 1, -24)
+    body.CanvasSize = UDim2.new(0, 0, 0, 540)
+
+    local autoDropStatusLabel = Instance.new("TextLabel")
+    autoDropStatusLabel.Name = "AutoDropStatus"
+    autoDropStatusLabel.Size = UDim2.new(1, -24, 0, 20)
+    autoDropStatusLabel.Position = UDim2.new(0, 12, 0, 510)
+    autoDropStatusLabel.BackgroundTransparency = 1
+    autoDropStatusLabel.Text = ""
+    autoDropStatusLabel.TextColor3 = Color3.fromRGB(220, 180, 100)
+    autoDropStatusLabel.Font = Enum.Font.SourceSans
+    autoDropStatusLabel.TextSize = 12
+    autoDropStatusLabel.TextXAlignment = Enum.TextXAlignment.Left
+    autoDropStatusLabel.TextWrapped = true
+    autoDropStatusLabel.Parent = body
+
+    local function getItemRarityIndex(itemId)
+        if not murimItems or not murimItems.get then return nil end
+        local ok, info = pcall(murimItems.get, itemId)
+        if not ok or type(info) ~= "table" then return nil end
+        local rarity = info.rarity
+        if murimConfig and murimConfig.rarityIndex then
+            local ok2, idx = pcall(murimConfig.rarityIndex, rarity)
+            if ok2 and tonumber(idx) then return tonumber(idx), info end
+        end
+        return RARITY_MAP[rarity] or 1, info
+    end
+
+    autoDropBtn.MouseButton1Click:Connect(function()
+        if autoDrop_running then return end
+        local state = murimClientState
+        if not state then
+            pcall(function()
+                local scripts = player:FindFirstChild("PlayerScripts")
+                local client = scripts and scripts:FindFirstChild("MurimClient")
+                if client then
+                    state = require(client:WaitForChild("State", 5))
+                    murimClientState = state
+                end
+            end)
+        end
+        if not state then
+            autoDropStatusLabel.Text = "❌ หา MurimClient.State ไม่เจอ"
+            return
+        end
+        local remote = itemRequestRemote or findItemRequestRemote()
+        if not remote then
+            pcall(function()
+                local murim = ReplicatedStorage:FindFirstChild("Murim")
+                local remotes = murim and murim:FindFirstChild("Remotes")
+                remote = remotes and (remotes:FindFirstChild("ItemRequest") or remotes:FindFirstChild("Item"))
+            end)
+        end
+        if not remote then
+            autoDropStatusLabel.Text = "❌ หา ItemRequest Remote ไม่เจอ"
+            return
+        end
+        itemRequestRemote = remote
+        local inventory = state.Inventory and state.Inventory.inventory or {}
+        if #inventory == 0 then
+            autoDropStatusLabel.Text = "⚠️ Inventory ว่างเปล่า หรือยังโหลดไม่เสร็จ"
+            return
+        end
+        autoDrop_running = true
+        autoDropBtn.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+        autoDropBtn.Text = "🔄 กำลังทิ้ง..."
+        local dropped, skipped, failed = 0, 0, 0
+        for _, item in ipairs(inventory) do
+            if destroyed then break end
+            if not item or type(item.uid) ~= "string" or not item.id then
+                skipped += 1; continue
+            end
+            local rarityIdx, info = getItemRarityIndex(item.id)
+            if not rarityIdx or not info then skipped += 1; continue end
+            local slot = info.slot or info.type or info.cat or ""
+            if not AUTO_DROP_EQUIP_SLOTS[slot] then skipped += 1; continue end
+            if rarityIdx < AUTO_DROP_MIN_RARITY then
+                autoDropStatusLabel.Text = string.format("🗑️ กำลังทิ้ง: %s [%s]...", item.id, info.rarity or "?")
+                local ok, result = pcall(function()
+                    return remote:InvokeServer("Drop", { uid = item.uid })
+                end)
+                if ok then dropped += 1 else
+                    failed += 1
+                    warn("[AutoDrop] uid=" .. item.uid .. ": " .. tostring(result))
+                end
+                task.wait(0.15)
+            else
+                skipped += 1
+            end
+        end
+        autoDrop_running = false
+        autoDropBtn.BackgroundColor3 = Color3.fromRGB(140, 60, 40)
+        autoDropBtn.Text = "🗑️ Auto Drop ของส่วมใส่ต่ำกว่า Legendary"
+        autoDropStatusLabel.Text = string.format("✅ ทิ้งแล้ว %d ชิ้น | ข้าม %d | ล้มเหลว %d", dropped, skipped, failed)
+        task.delay(8, function()
+            if not destroyed and autoDropStatusLabel.Parent then
+                autoDropStatusLabel.Text = ""
+            end
+        end)
+    end)
+end)()
 
 -- Keep Start/Stop accessible from every page.
 local footer = Instance.new("Frame")
