@@ -1159,13 +1159,13 @@ end
 local tabsBar = Instance.new("Frame")
 tabsBar.Name = "Tabs"
 tabsBar.Position = UDim2.new(0, 12, 0, 66)
-tabsBar.Size = UDim2.new(1, -24, 0, 82)
+tabsBar.Size = UDim2.new(1, -24, 0, 92)
 tabsBar.BackgroundTransparency = 1
 tabsBar.Parent = mainFrame
 local pagesHost = Instance.new("Frame")
 pagesHost.Name = "Pages"
-pagesHost.Position = UDim2.new(0, 12, 0, 158)
-pagesHost.Size = UDim2.new(1, -24, 1, -220)
+pagesHost.Position = UDim2.new(0, 12, 0, 166)
+pagesHost.Size = UDim2.new(1, -24, 1, -228)
 pagesHost.BackgroundTransparency = 1
 pagesHost.ClipsDescendants = true
 pagesHost.Parent = mainFrame
