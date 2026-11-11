@@ -2284,7 +2284,7 @@ externalConnections[#externalConnections + 1] = RunService.Heartbeat:Connect(fun
 end)
 
 -- Halloween: IIFE เพื่อลด register ใน buildMaster
-(function()
+;(function()
     local halloweenPage = makePage("Halloween", 8, "🎃 ฮาโลวีน")
     newHeading(halloweenPage, "🎃 The Hungry Ghost Gate • Auto Raid (ครบ 10 ห้อง)")
     local hallowBody = Instance.new("ScrollingFrame")
@@ -2453,7 +2453,7 @@ end)()
 
 -- SettingsPage: แยกเป็น IIFE เพื่อลด register count ใน buildMaster (Lua 5.1 limit 200)
 local settingsBody;
-(function()
+;(function()
     local settingsPage = makePage("Settings", 9, "ตั้งค่า")
     newHeading(settingsPage, "ตั้งค่าการฟาร์ม")
     local body = Instance.new("ScrollingFrame")
