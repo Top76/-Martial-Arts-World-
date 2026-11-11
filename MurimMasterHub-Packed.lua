@@ -3119,7 +3119,14 @@ local function startFarming()
 
 					if aliveStatus and targetCF and npcObj then
 						currentTarget = npcObj
-						hrp.CFrame = targetCF * CFrame.new(0, heightUnder, 0) * lyingRotation
+						-- ไม่วาร์ปถ้าตัวละครกำลังโดดอยู่ (ป้องกันจมพื้นขณะกระโดด)
+						local hum = character and character:FindFirstChildOfClass("Humanoid")
+						local st = hum and hum:GetState()
+						local isJumping = st == Enum.HumanoidStateType.Jumping
+							or st == Enum.HumanoidStateType.Freefall
+						if not isJumping then
+							hrp.CFrame = targetCF * CFrame.new(0, heightUnder, 0) * lyingRotation
+						end
 					else
 						currentTarget = nil
                         -- If we were away fighting a boss or died, and no selected monsters are currently loaded:
