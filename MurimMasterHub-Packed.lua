@@ -3018,6 +3018,27 @@ local function startFarming()
 			local hrp = character and character:FindFirstChild("HumanoidRootPart")
 
 			if hrp then
+                -- ตรวจกล่องบอสและ loot wait ก่อนเสมอ เพื่อไม่ให้ข้ามกล่องแล้วรีบไปบอสถัดไป
+                if isAutoLooting and lastBossCFrame then
+                    local bossChestObj, bossChestPart = getBossChest()
+                    if bossChestObj and bossChestPart then
+                        currentTarget = nil
+                        local bTxt = "🎁 เปิดกล่องบอส: " .. tostring(bossChestObj.Name)
+                        if startBtn.Text ~= bTxt then startBtn.Text = bTxt end
+                        interactWithDrop(bossChestObj)
+                        task.wait(0.1)
+                        continue
+                    elseif os.clock() < bossLootWaitUntil then
+                        currentTarget = nil
+                        local secsLeft = math.ceil(bossLootWaitUntil - os.clock())
+                        local wTxt = "⏳ รอกล่องบอสเกิด... (" .. secsLeft .. "s)"
+                        if startBtn.Text ~= wTxt then startBtn.Text = wTxt end
+                        hrp.CFrame = lastBossCFrame * CFrame.new(0, 3, 0)
+                        task.wait(0.25)
+                        continue
+                    end
+                end
+
                 local bossCF, bossAlive, bossObj = chooseBossTarget()
                 local targetCF, aliveStatus, npcObj
                 local isBoss = false
@@ -3046,28 +3067,6 @@ local function startFarming()
                         continue
                     end
                 else
-                    -- Check Boss Chest FIRST before targeting normal monsters!
-                    local bossChestObj, bossChestPart = getBossChest()
-                    if isAutoLooting and bossChestObj and bossChestPart then
-                        currentTarget = nil
-                        local bTxt = "🎁 เปิดกล่องบอส: " .. tostring(bossChestObj.Name)
-                        if startBtn.Text ~= bTxt then startBtn.Text = bTxt end
-                        interactWithDrop(bossChestObj)
-                        task.wait(0.1)
-                        continue
-                    end
-
-                    -- Check if we recently killed a boss and are waiting for the boss chest to spawn
-                    if isAutoLooting and os.clock() < bossLootWaitUntil and lastBossCFrame then
-                        currentTarget = nil
-                        if startBtn.Text ~= "⏳ รอกล่องบอสเกิด..." then
-                            startBtn.Text = "⏳ รอกล่องบอสเกิด..."
-                        end
-                        hrp.CFrame = lastBossCFrame * CFrame.new(0, 3, 0)
-                        task.wait(0.25)
-                        continue
-                    end
-
                     if startBtn.Text ~= "กำลังฟาร์ม..." then startBtn.Text = "กำลังฟาร์ม..." end
                     targetCF, aliveStatus, npcObj = getHighestLevelTarget()
                 end
