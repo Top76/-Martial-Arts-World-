@@ -274,6 +274,14 @@ local function findArtifactRemote()
 end
 local artifactRemote = findArtifactRemote()
 
+-- Remote สำหรับ Drop/จัดการไอเทม
+local function findItemRequestRemote()
+    local murim = ReplicatedStorage:FindFirstChild("Murim")
+    local remotes = murim and murim:FindFirstChild("Remotes")
+    return remotes and remotes:FindFirstChild("ItemRequest")
+end
+local itemRequestRemote = findItemRequestRemote()
+
 local hubUI = {}
 local originalHitboxes = setmetatable({}, { __mode = "k" })
 local selectedNPCNames = {} -- รายชื่อมอนที่เลือก [Name] = true/false
@@ -602,6 +610,16 @@ if murimShared then
     pcall(function() murimItemColors = require(murimShared:WaitForChild("ItemColors", 3)) end)
 end
 
+-- 🗑️ MurimClient.State สำหรับ Auto Drop
+local murimClientState = nil
+pcall(function()
+    local scripts = player:WaitForChild("PlayerScripts", 10)
+    local client = scripts and scripts:FindFirstChild("MurimClient")
+    if client then
+        murimClientState = require(client:WaitForChild("State", 5))
+    end
+end)
+
 local heavenGradeThreshold = 4
 if murimItems and murimItems.HeavenGrade then
     heavenGradeThreshold = tonumber(murimItems.HeavenGrade) or 4
@@ -672,40 +690,63 @@ end
 
 local function shouldLootItem(drop)
     if not drop or not drop.Parent then return false end
-    local personal = drop:GetAttribute("Personal")
-    local owner = drop:GetAttribute("Owner")
+
+    -- Resolve to the actual BasePart that carries the item attributes
+    -- (Murim_Drops children are BaseParts; nested parts may appear for Models)
+    local part = drop:IsA("BasePart") and drop or drop:FindFirstChildWhichIsA("BasePart", true)
+
+    -- Ownership / personal-loot check on the part first, then the container
+    local function getAttribute(key)
+        local v = drop:GetAttribute(key)
+        if v == nil and part and part ~= drop then v = part:GetAttribute(key) end
+        return v
+    end
+
+    local personal = getAttribute("Personal")
+    local owner    = getAttribute("Owner")
     if personal == true and owner ~= player.UserId then
         return false
     end
+
+    -- Filter disabled → take everything
     if currentLootFilterIdx <= 1 then
         return true
     end
-    local itemId = drop:GetAttribute("ItemId")
-    if not itemId then
-        local p = drop:IsA("BasePart") and drop or drop:FindFirstChildWhichIsA("BasePart", true)
-        if p then itemId = p:GetAttribute("ItemId") end
-    end
+
+    -- Resolve ItemId (must be on the BasePart in Murim_Drops)
+    local itemId = getAttribute("ItemId")
     if type(itemId) ~= "string" then
+        -- No ItemId at all → cannot filter, allow pickup
         return true
     end
-    local held = drop:GetAttribute("Held")
+
+    -- Always keep items the player is already holding
+    local held = getAttribute("Held")
     if held and owner == player.UserId then
         return true
     end
-    if drop:GetAttribute("Enchant") then
+
+    -- Always keep enchanted items
+    if getAttribute("Enchant") then
         return true
     end
-    local grade = tonumber(drop:GetAttribute("Grade"))
+
+    -- Always keep heaven-grade (Grade attribute >= threshold)
+    local grade = tonumber(getAttribute("Grade"))
     if grade and grade >= heavenGradeThreshold then
         return true
     end
-    local seaColor = drop:GetAttribute("SeaColor")
+
+    -- Always keep high sea-tier items (SeaColor tier >= 2)
+    local seaColor = getAttribute("SeaColor")
     if type(seaColor) == "string" and murimItemColors and murimItemColors.tier then
         local ok, tier = pcall(murimItemColors.tier, seaColor)
         if ok and (tonumber(tier) or 0) >= 2 then
             return true
         end
     end
+
+    -- Look up item metadata for rarity / category checks
     local itemInfo = nil
     if murimItems and murimItems.get then
         local ok, info = pcall(murimItems.get, itemId)
@@ -713,13 +754,17 @@ local function shouldLootItem(drop)
             itemInfo = info
         end
     end
+
     if itemInfo then
+        -- Always keep special categories (Currency, Quest, Collectible, Pet)
         if KEEP_CATS[itemInfo.cat] then
             return true
         end
+        -- Always keep boss keys
         if isBossKey(itemInfo.id or itemId) then
             return true
         end
+        -- Rarity filter: minIndex (currentLootFilterIdx) must be <= item's rarity index
         local rIndex = 1
         if murimConfig and murimConfig.rarityIndex then
             local ok, idx = pcall(murimConfig.rarityIndex, itemInfo.rarity)
@@ -729,8 +774,11 @@ local function shouldLootItem(drop)
         else
             rIndex = RARITY_MAP[itemInfo.rarity] or 1
         end
-        return rIndex >= currentLootFilterIdx
+        -- Mirror game logic: show (loot) only when minIndex <= rarityIndex
+        return currentLootFilterIdx <= rIndex
     end
+
+    -- Unknown item (not in Items module) → safe to loot
     return true
 end
 
@@ -2540,6 +2588,168 @@ end)
 displayPositionMode()
 placeButton(destroyBtn, settingsBody, 0, 12, 420, 1, -24)
 
+-- 🗑️ Auto Drop: ทิ้งของส่วมใส่ที่ต่ำกว่า Epic จาก Inventory
+-- slot ของของที่สวมใส่ได้ตามรูป (Head/Neck/Top/Bottom/Back/Waist/Wrist/Weapon/Style)
+local AUTO_DROP_EQUIP_SLOTS = {
+    ["Head"] = true, ["Headwear"] = true,
+    ["Neck"] = true,
+    ["Top"] = true,
+    ["Bottom"] = true,
+    ["Back"] = true,
+    ["Waist"] = true,
+    ["Wrist"] = true,
+    ["Weapon"] = true,
+    ["Style"] = true,
+    -- slot ชื่ออื่นที่เกมอาจใช้
+    ["Helmet"] = true, ["Chest"] = true, ["Legs"] = true,
+    ["Gloves"] = true, ["Boots"] = true, ["Offhand"] = true,
+}
+local AUTO_DROP_MIN_RARITY = 5 -- Legendary = 5; ของ Common/Uncommon/Rare/Epic จะถูกทิ้ง
+local autoDrop_running = false
+
+local autoDropBtn = Instance.new("TextButton")
+autoDropBtn.Name = "AutoDropEquip"
+autoDropBtn.Font = Enum.Font.SourceSansBold
+autoDropBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+autoDropBtn.TextSize = 13
+autoDropBtn.TextWrapped = true
+Instance.new("UICorner", autoDropBtn).CornerRadius = UDim.new(0, 6)
+placeButton(autoDropBtn, settingsBody, 0, 12, 468, 1, -24)
+autoDropBtn.Text = "🗑️ Auto Drop ของส่วมใส่ต่ำกว่า Legendary"
+autoDropBtn.BackgroundColor3 = Color3.fromRGB(140, 60, 40)
+
+settingsBody.CanvasSize = UDim2.new(0, 0, 0, 540)
+
+-- Label แสดงผลลัพธ์
+local autoDropStatusLabel = Instance.new("TextLabel")
+autoDropStatusLabel.Name = "AutoDropStatus"
+autoDropStatusLabel.Size = UDim2.new(1, -24, 0, 20)
+autoDropStatusLabel.Position = UDim2.new(0, 12, 0, 510)
+autoDropStatusLabel.BackgroundTransparency = 1
+autoDropStatusLabel.Text = ""
+autoDropStatusLabel.TextColor3 = Color3.fromRGB(220, 180, 100)
+autoDropStatusLabel.Font = Enum.Font.SourceSans
+autoDropStatusLabel.TextSize = 12
+autoDropStatusLabel.TextXAlignment = Enum.TextXAlignment.Left
+autoDropStatusLabel.TextWrapped = true
+autoDropStatusLabel.Parent = settingsBody
+
+local function getItemRarityIndex(itemId)
+    if not murimItems or not murimItems.get then return nil end
+    local ok, info = pcall(murimItems.get, itemId)
+    if not ok or type(info) ~= "table" then return nil end
+    local rarity = info.rarity
+    if murimConfig and murimConfig.rarityIndex then
+        local ok2, idx = pcall(murimConfig.rarityIndex, rarity)
+        if ok2 and tonumber(idx) then return tonumber(idx), info end
+    end
+    return RARITY_MAP[rarity] or 1, info
+end
+
+autoDropBtn.MouseButton1Click:Connect(function()
+    if autoDrop_running then return end
+    -- หา State module
+    local state = murimClientState
+    if not state then
+        -- ลองหาอีกครั้ง
+        pcall(function()
+            local scripts = player:FindFirstChild("PlayerScripts")
+            local client = scripts and scripts:FindFirstChild("MurimClient")
+            if client then
+                state = require(client:WaitForChild("State", 5))
+                murimClientState = state
+            end
+        end)
+    end
+    if not state then
+        autoDropStatusLabel.Text = "❌ หา MurimClient.State ไม่เจอ"
+        return
+    end
+    -- หา ItemRequest remote
+    local remote = itemRequestRemote or findItemRequestRemote()
+    if not remote then
+        -- ค้นหาด้วยชื่อ
+        pcall(function()
+            local murim = ReplicatedStorage:FindFirstChild("Murim")
+            local remotes = murim and murim:FindFirstChild("Remotes")
+            remote = remotes and (remotes:FindFirstChild("ItemRequest") or remotes:FindFirstChild("Item"))
+        end)
+    end
+    if not remote then
+        autoDropStatusLabel.Text = "❌ หา ItemRequest Remote ไม่เจอ"
+        return
+    end
+    itemRequestRemote = remote
+
+    local inventory = state.Inventory and state.Inventory.inventory or {}
+    if #inventory == 0 then
+        autoDropStatusLabel.Text = "⚠️ Inventory ว่างเปล่า หรือยังโหลดไม่เสร็จ"
+        return
+    end
+
+    autoDrop_running = true
+    autoDropBtn.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+    autoDropBtn.Text = "🔄 กำลังทิ้ง..."
+
+    local dropped = 0
+    local skipped = 0
+    local failed = 0
+
+    for _, item in ipairs(inventory) do
+        if destroyed then break end
+        if not item or type(item.uid) ~= "string" or not item.id then
+            skipped += 1
+            continue
+        end
+
+        -- รับ rarity และ slot ของ item
+        local rarityIdx, info = getItemRarityIndex(item.id)
+        if not rarityIdx or not info then
+            -- ไม่รู้ rarity → ข้าม (safe)
+            skipped += 1
+            continue
+        end
+
+        -- ตรวจว่าเป็น slot ที่สวมใส่ได้ไหม
+        local slot = info.slot or info.type or info.cat or ""
+        local isEquipSlot = AUTO_DROP_EQUIP_SLOTS[slot]
+        if not isEquipSlot then
+            skipped += 1
+            continue
+        end
+
+        -- ถ้า rarity ต่ำกว่า Epic → ทิ้ง
+        if rarityIdx < AUTO_DROP_MIN_RARITY then
+            autoDropStatusLabel.Text = string.format("🗑️ กำลังทิ้ง: %s [%s]...", item.id, info.rarity or "?")
+            local ok, result = pcall(function()
+                return remote:InvokeServer("Drop", { uid = item.uid })
+            end)
+            if ok then
+                dropped += 1
+            else
+                failed += 1
+                warn("[AutoDrop] Drop failed for uid=" .. item.uid .. ": " .. tostring(result))
+            end
+            task.wait(0.15) -- หน่วงเล็กน้อยไม่ให้ spam
+        else
+            skipped += 1
+        end
+    end
+
+    autoDrop_running = false
+    autoDropBtn.BackgroundColor3 = Color3.fromRGB(140, 60, 40)
+    autoDropBtn.Text = "🗑️ Auto Drop ของส่วมใส่ต่ำกว่า Legendary"
+    autoDropStatusLabel.Text = string.format(
+        "✅ ทิ้งแล้ว %d ชิ้น | ข้าม %d | ล้มเหลว %d",
+        dropped, skipped, failed
+    )
+    task.delay(8, function()
+        if not destroyed and autoDropStatusLabel.Parent then
+            autoDropStatusLabel.Text = ""
+        end
+    end)
+end)
+
 -- Keep Start/Stop accessible from every page.
 local footer = Instance.new("Frame")
 footer.Name = "PersistentControls"
@@ -2613,6 +2823,9 @@ local function interactWithDrop(dropItem)
 	local character = player.Character
 	if not character or not character:FindFirstChild("HumanoidRootPart") then return end
 	local hrp = character.HumanoidRootPart
+
+	-- Skip interaction when not farming or UI is busy to avoid interfering with jump actions
+	if not isFarming or (hubUI.isBusy and hubUI.isBusy()) then return end
 
 	local targetPart = dropItem:IsA("BasePart") and dropItem or (dropItem:IsA("Model") and dropItem.PrimaryPart) or dropItem:FindFirstChildWhichIsA("BasePart", true)
 	if not targetPart then return end
